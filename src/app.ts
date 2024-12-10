@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
+import path from 'path';
 import productRoutes from './routes/product.routes';
 import categoryRoutes from './routes/category.routes';
 import orderRoutes from './routes/order.routes';
@@ -19,6 +20,9 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Configure CORS
 app.use(cors({
