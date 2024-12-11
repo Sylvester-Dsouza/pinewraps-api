@@ -29,25 +29,23 @@ const allowedOrigins = [
   'http://localhost:3000',  // Admin panel local
   'http://localhost:3001',  // API local
   'http://localhost:3002',  // Web local
+  'https://admin.pinewraps.com',
+  'https://api.pinewraps.com',
+  'https://pinewraps-api.onrender.com',
+  'https://pinewraps.com',
+  'https://www.pinewraps.com'
 ];
 
-// Add production origins if defined
-const productionOrigin = process.env.FRONTEND_URL;
-if (productionOrigin) {
-  allowedOrigins.push(productionOrigin);
-}
-
 app.use(cors({
-  origin: function(origin, callback) {
+  origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.log('Blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
     }
+    return callback(null, true);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -60,22 +58,25 @@ app.options('*', cors());
 app.use(morgan('dev'));
 app.use(cookieParser());
 
-// Basic route for API health check
-app.get('/health', (req: express.Request, res: express.Response) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
 // Routes
-app.use('/api/admin-auth', adminAuthRoutes); 
-app.use('/api/customers/auth', customerAuthRoutes); 
-app.use('/api/customers', customerRoutes); 
 app.use('/api/products', productRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/admins', adminRoutes); 
+app.use('/api/admin-auth', adminAuthRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/rewards', rewardRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/customer-auth', customerAuthRoutes);
 app.use('/api/payments', paymentRoutes);
+
+// Health check route (no /api prefix for easier access)
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Welcome route
 app.get('/', (req: express.Request, res: express.Response) => {
