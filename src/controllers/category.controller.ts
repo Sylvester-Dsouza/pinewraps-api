@@ -1,262 +1,138 @@
 import { Request, Response, NextFunction } from 'express';
-import { ApiError } from '../utils/ApiError';
 import { prisma } from '../lib/prisma';
+import { generateSlug } from '../utils/slug';
+import { ApiError } from '../utils/api-error';
 
-const DEFAULT_CATEGORIES = [
-  { 
-    name: 'Cakes', 
-    description: 'Delicious custom cakes for all occasions'
-  },
-  { 
-    name: 'Flowers', 
-    description: 'Beautiful floral arrangements'
-  },
-  { 
-    name: 'Combos', 
-    description: 'Special combinations of cakes and flowers'
-  }
-];
-
-// Initialize fixed categories if they don't exist
-export const initializeCategories = async () => {
-  try {
-    // Always ensure our default categories exist and are active
-    for (const category of DEFAULT_CATEGORIES) {
-      await prisma.category.upsert({
-        where: { name: category.name },
-        update: { 
-          description: category.description,
-          deletedAt: null // Ensure the category is not soft-deleted
-        },
-        create: {
-          name: category.name,
-          description: category.description
-        }
-      });
-    }
-    console.log('Categories verified successfully');
-  } catch (error) {
-    console.error('Error initializing categories:', error);
-  }
-};
-
-// Get all categories
-export const getAllCategories = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const categories = await prisma.category.findMany({
-      where: {
-        deletedAt: null
-      },
-      orderBy: {
-        name: 'asc'
-      },
-      include: {
-        _count: {
-          select: {
-            products: true
-          }
-        }
-      }
-    });
-
-    const formattedCategories = categories.map(category => ({
-      ...category,
-      productCount: category._count.products
-    }));
-
-    res.json({
-      success: true,
-      data: formattedCategories
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Create a new category
-export const createCategory = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { name, description } = req.body;
-
-    if (!name) {
-      throw new ApiError('Category name is required', 400);
-    }
-
-    const existingCategory = await prisma.category.findUnique({
-      where: { name }
-    });
-
-    if (existingCategory && !existingCategory.deletedAt) {
-      throw new ApiError('Category with this name already exists', 400);
-    }
-
-    // If category was soft deleted, restore it
-    if (existingCategory && existingCategory.deletedAt) {
-      const category = await prisma.category.update({
-        where: { id: existingCategory.id },
-        data: {
-          description,
-          deletedAt: null,
-          updatedAt: new Date()
-        }
-      });
-
-      return res.status(200).json({
-        success: true,
-        data: category
-      });
-    }
-
-    const category = await prisma.category.create({
-      data: {
-        name,
-        description
-      }
-    });
-
-    res.status(201).json({
-      success: true,
-      data: category
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Get category by ID
-export const getCategoryById = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { id } = req.params;
-
-    const category = await prisma.category.findUnique({
-      where: { id },
-      include: {
-        products: true,
-        _count: {
-          select: {
-            products: true
-          }
-        }
-      }
-    });
-
-    if (!category || category.deletedAt) {
-      throw new ApiError('Category not found', 404);
-    }
-
-    res.json({
-      success: true,
-      data: {
-        ...category,
-        productCount: category._count.products
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Update category
-export const updateCategory = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { id } = req.params;
-    const { name, description } = req.body;
-
-    const existingCategory = await prisma.category.findUnique({
-      where: { id }
-    });
-
-    if (!existingCategory || existingCategory.deletedAt) {
-      throw new ApiError('Category not found', 404);
-    }
-
-    if (name && name !== existingCategory.name) {
-      const nameExists = await prisma.category.findFirst({
+const CategoryController = {
+  async getAll(req: Request, res: Response, next: NextFunction) {
+    try {
+      const categories = await prisma.category.findMany({
         where: {
-          name,
-          id: { not: id },
-          deletedAt: null
+          isActive: true
+        },
+        orderBy: {
+          createdAt: 'desc'
         }
       });
 
-      if (nameExists) {
-        throw new ApiError('Category with this name already exists', 400);
-      }
+      return res.json(categories);
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+      next(new ApiError(500, 'Failed to fetch categories'));
     }
+  },
 
-    const category = await prisma.category.update({
-      where: { id },
-      data: {
-        name: name || undefined,
-        description: description || undefined,
-        updatedAt: new Date()
+  async create(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { name, description } = req.body;
+      const userId = req.user?.id;
+
+      // Generate slug from name
+      const slug = generateSlug(name);
+
+      const category = await prisma.category.create({
+        data: {
+          id: slug,
+          name,
+          description,
+          slug,
+          createdBy: userId,
+          updatedBy: userId
+        }
+      });
+
+      return res.json(category);
+    } catch (error) {
+      console.error('Error creating category:', error);
+      next(new ApiError(500, 'Failed to create category'));
+    }
+  },
+
+  async update(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+      const { name, description, isActive } = req.body;
+      const userId = req.user?.id;
+
+      // Generate new slug if name is changed
+      const updateData: any = {
+        updatedBy: userId
+      };
+
+      if (name) {
+        updateData.name = name;
+        updateData.slug = generateSlug(name);
       }
-    });
 
-    res.json({
-      success: true,
-      data: category
-    });
-  } catch (error) {
-    next(error);
+      if (description !== undefined) {
+        updateData.description = description;
+      }
+
+      if (isActive !== undefined) {
+        updateData.isActive = isActive;
+      }
+
+      const category = await prisma.category.update({
+        where: { id },
+        data: updateData
+      });
+
+      return res.json(category);
+    } catch (error) {
+      console.error('Error updating category:', error);
+      next(new ApiError(500, 'Failed to update category'));
+    }
+  },
+
+  async delete(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      await prisma.category.delete({
+        where: { id }
+      });
+
+      return res.json({ message: 'Category deleted successfully' });
+    } catch (error) {
+      console.error('Error deleting category:', error);
+      next(new ApiError(500, 'Failed to delete category'));
+    }
+  },
+
+  async getById(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { id } = req.params;
+
+      const category = await prisma.category.findUnique({
+        where: { id },
+        include: {
+          products: {
+            where: {
+              status: 'ACTIVE'
+            },
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              basePrice: true,
+              sku: true,
+              createdAt: true,
+              updatedAt: true
+            }
+          }
+        }
+      });
+
+      if (!category) {
+        throw new ApiError(404, 'Category not found');
+      }
+
+      return res.json(category);
+    } catch (error) {
+      console.error('Error fetching category:', error);
+      next(new ApiError(500, 'Failed to fetch category'));
+    }
   }
 };
 
-// Delete category
-export const deleteCategory = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { id } = req.params;
-
-    const category = await prisma.category.findUnique({
-      where: { id }
-    });
-
-    if (!category || category.deletedAt) {
-      throw new ApiError('Category not found', 404);
-    }
-
-    // Check if this is a default category
-    const isDefaultCategory = DEFAULT_CATEGORIES.some(
-      defaultCat => defaultCat.name.toLowerCase() === category.name.toLowerCase()
-    );
-
-    if (isDefaultCategory) {
-      throw new ApiError('Cannot delete default categories (Cakes, Flowers, Combos)', 403);
-    }
-
-    // Soft delete the category
-    await prisma.category.update({
-      where: { id },
-      data: {
-        deletedAt: new Date()
-      }
-    });
-
-    res.json({
-      success: true,
-      message: 'Category deleted successfully'
-    });
-  } catch (error) {
-    next(error);
-  }
-};
+export default CategoryController;

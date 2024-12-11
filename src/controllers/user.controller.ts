@@ -2,13 +2,16 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { auth } from '../lib/firebase-admin';
 import { z } from 'zod';
-import { Emirates } from '@prisma/client';
+import { Emirates, UserRole, AdminAccess } from '@prisma/client';
+import { ApiError } from '../utils/api-error';
 
 // Validation schemas
 const updateProfileSchema = z.object({
   // User fields
   name: z.string().optional(),
   phone: z.string().optional(),
+  role: z.nativeEnum(UserRole).optional(),
+  adminAccess: z.nativeEnum(AdminAccess).array().optional(),
   
   // Customer fields
   firstName: z.string().optional(),
@@ -42,6 +45,15 @@ export const UserController = {
           where: { firebaseUid: req.user!.uid },
           include: {
             notifications: true
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            adminAccess: true,
+            createdAt: true,
+            updatedAt: true
           }
         }),
         prisma.customer.findUnique({
@@ -94,6 +106,7 @@ export const UserController = {
 
       const { 
         firstName, lastName, birthDate, gender, notifications,
+        role, adminAccess,
         ...userFields 
       } = validation.data;
 
@@ -104,6 +117,8 @@ export const UserController = {
           where: { firebaseUid: req.user!.uid },
           data: {
             ...userFields,
+            role: role as UserRole,
+            adminAccess: adminAccess as AdminAccess[],
             notifications: notifications ? {
               upsert: {
                 create: notifications,
@@ -113,6 +128,15 @@ export const UserController = {
           },
           include: {
             notifications: true
+          },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            adminAccess: true,
+            createdAt: true,
+            updatedAt: true
           }
         });
 

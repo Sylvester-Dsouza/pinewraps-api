@@ -8,8 +8,8 @@
   },
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "swc src -d dist && node scripts/build.js",
-    "start": "node dist/index.js",
+    "build": "swc src -d dist --copy-files && node scripts/fix-build.js",
+    "start": "node dist/src/index.js",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",

@@ -15,7 +15,9 @@
     "isolatedModules": true,
     "incremental": true,
     "noUncheckedIndexedAccess": false,
-    "noImplicitAny": false
+    "noImplicitAny": false,
+    "declaration": true,
+    "emitDeclarationOnly": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

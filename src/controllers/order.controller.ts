@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { prisma } from '../lib/prisma';
 import { OrderService } from '../services/order.service';
 import { OrderAnalyticsService } from '../services/order-analytics.service';
 import { OrderEmailService } from '../services/order-email.service';
@@ -13,6 +14,8 @@ import {
   UpdateAdminNotesSchema,
   SendEmailSchema 
 } from '../models/order.model';
+import { ApiError } from '../utils/api-error';
+import { DeliveryType } from '@prisma/client';
 
 export class OrderController {
   public static initialize(wsService: WebSocketService) {
@@ -25,15 +28,37 @@ export class OrderController {
       const { page, limit, status, search } = GetOrdersQuerySchema.parse(req.query);
       console.log('Query params:', { page, limit, status, search });
       
-      const result = await OrderService.getOrders({
-        page, limit, status, search,
-        userId: req.user?.id,
-        userRole: req.user?.role,
-        userEmail: req.user?.email
+      const where: any = {};
+      if (status) {
+        where.status = status;
+      }
+
+      const skip = (Number(page) - 1) * Number(limit);
+
+      const [orders, total] = await Promise.all([
+        prisma.order.findMany({
+          where,
+          skip,
+          take: Number(limit),
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: true,
+            items: {
+              include: {
+                product: true
+              }
+            }
+          }
+        }),
+        prisma.order.count({ where })
+      ]);
+
+      return res.json({
+        orders,
+        total,
+        page: Number(page),
+        totalPages: Math.ceil(total / Number(limit))
       });
-      
-      console.log('Orders result:', JSON.stringify(result, null, 2));
-      return res.json({ success: true, data: result });
     } catch (error) {
       console.error('Get orders error:', error);
       return res.status(500).json({
@@ -49,8 +74,29 @@ export class OrderController {
 
   static async getOrder(req: Request, res: Response) {
     try {
-      const orderId = req.params.orderId;
-      const order = await OrderService.getOrder(orderId);
+      const { id } = req.params;
+      const order = await prisma.order.findUnique({
+        where: { id },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true
+            }
+          }
+        }
+      });
+
+      if (!order) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'ORDER_NOT_FOUND',
+            message: 'Order not found'
+          }
+        });
+      }
+
       return res.json({ success: true, data: order });
     } catch (error) {
       console.error('Get order error:', error);
@@ -121,13 +167,15 @@ export class OrderController {
 
   static async updateOrderStatus(req: Request, res: Response) {
     try {
-      const orderId = req.params.orderId;
+      const { id } = req.params;
       const { status } = UpdateOrderStatusSchema.parse(req.body);
-      
-      // Get user information from the request
+
+      if (!Object.values(OrderStatus).includes(status)) {
+        throw new ApiError(400, 'Invalid order status');
+      }
+
       const updatedBy = req.user?.email || 'ADMIN';
-      
-      const updatedOrder = await OrderService.updateOrderStatus(orderId, status as OrderStatus, updatedBy);
+      const updatedOrder = await OrderService.updateOrderStatus(id, status as OrderStatus, updatedBy);
       
       return res.json({
         success: true,
@@ -154,7 +202,17 @@ export class OrderController {
       const userRole = req.user?.role;
 
       // Get the order first to check permissions
-      const order = await OrderService.getOrder(orderId);
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true
+            }
+          }
+        }
+      });
       
       // Check if order exists
       if (!order) {
@@ -210,7 +268,10 @@ export class OrderController {
     try {
       const { adminNotes } = UpdateAdminNotesSchema.parse(req.body);
       const orderId = req.params.id;
-      const order = await OrderService.updateAdminNotes(orderId, adminNotes);
+      const order = await prisma.order.update({
+        where: { id: orderId },
+        data: { adminNotes }
+      });
       return res.json({ success: true, data: order });
     } catch (error) {
       console.error('Update notes error:', error);
