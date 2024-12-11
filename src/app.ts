@@ -25,13 +25,37 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
 // Configure CORS
+const allowedOrigins = [
+  // Local development
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:3002',
+  // Development IP
+  'http://192.168.1.2:3001',
+  // Production domains
+  'https://admin.pinewraps.com',
+  'https://www.admin.pinewraps.com',
+  'https://pinewraps.com',
+  'https://www.pinewraps.com',
+  // Include HTTP versions for local testing
+  'http://admin.pinewraps.com',
+  'http://www.admin.pinewraps.com',
+  'http://pinewraps.com',
+  'http://www.pinewraps.com'
+];
+
 app.use(cors({
-  origin: [
-    'http://localhost:3000', 
-    'http://localhost:3001', 
-    'http://localhost:3002',
-    'http://192.168.1.2:3001'
-  ],
+  origin: function(origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      console.log('Blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-requested-with']
