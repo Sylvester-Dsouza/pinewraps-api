@@ -37,7 +37,7 @@ const allowedOrigins = [
   'https://www.admin.pinewraps.com',
   'https://pinewraps.com',
   'https://www.pinewraps.com',
-  // Include HTTP versions for local testing
+  // Include HTTP versions for testing
   'http://admin.pinewraps.com',
   'http://www.admin.pinewraps.com',
   'http://pinewraps.com',
@@ -68,7 +68,7 @@ app.use(morgan('dev'));
 app.use(cookieParser());
 
 // Basic route for API health check
-app.get('/health', (req: express.Request, res: express.Response) => {
+app.get('/api/health', (req: express.Request, res: express.Response) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
