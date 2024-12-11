@@ -30,18 +30,21 @@ const allowedOrigins = [
   'http://localhost:3001',  // API local
   'http://localhost:3002',  // Web local
   'https://admin.pinewraps.com',
-  'https://api.pinewraps.com',
   'https://pinewraps-api.onrender.com',
   'https://pinewraps.com',
-  'https://www.pinewraps.com'
+  'https://www.pinewraps.com',
+  'https://pinewraps-web.vercel.app',  // Web staging
+  'https://pinewraps-web-git-main.vercel.app',  // Web preview
+  'https://pinewraps-web-git-staging.vercel.app'  // Web staging
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
+
     if (allowedOrigins.indexOf(origin) === -1) {
+      console.error('Blocked origin:', origin);
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
