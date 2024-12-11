@@ -37,11 +37,9 @@ const allowedOrigins = [
   'https://www.admin.pinewraps.com',
   'https://pinewraps.com',
   'https://www.pinewraps.com',
-  // Include HTTP versions for testing
-  'http://admin.pinewraps.com',
-  'http://www.admin.pinewraps.com',
-  'http://pinewraps.com',
-  'http://www.pinewraps.com'
+  // API domains
+  'https://api.pinewraps.com',
+  'https://www.api.pinewraps.com'
 ];
 
 app.use(cors({
