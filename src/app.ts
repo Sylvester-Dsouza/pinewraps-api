@@ -14,6 +14,9 @@ import customerRoutes from './routes/customer.routes';
 import customerAuthRoutes from './routes/customer-auth.routes';
 import paymentRoutes from './routes/payment.routes';
 import { errorHandler } from './middleware/errorHandler';
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
 
 const app = express();
 
@@ -67,7 +70,42 @@ app.use(cookieParser());
 
 // Basic route for API health check
 app.get('/api/health', (req: express.Request, res: express.Response) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+  try {
+    // Check database connection
+    prisma.$queryRaw`SELECT 1`
+      .then(() => {
+        res.json({
+          success: true,
+          status: 'healthy',
+          services: {
+            database: 'connected',
+            api: 'running'
+          },
+          timestamp: new Date().toISOString()
+        });
+      })
+      .catch((error) => {
+        console.error('Database health check failed:', error);
+        res.status(503).json({
+          success: false,
+          status: 'unhealthy',
+          services: {
+            database: 'disconnected',
+            api: 'running'
+          },
+          error: 'Database connection failed',
+          timestamp: new Date().toISOString()
+        });
+      });
+  } catch (error) {
+    console.error('Health check failed:', error);
+    res.status(500).json({
+      success: false,
+      status: 'unhealthy',
+      error: 'Internal server error',
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // Routes
