@@ -14,9 +14,6 @@ import customerRoutes from './routes/customer.routes';
 import customerAuthRoutes from './routes/customer-auth.routes';
 import paymentRoutes from './routes/payment.routes';
 import { errorHandler } from './middleware/errorHandler';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
 
 const app = express();
 
@@ -29,21 +26,16 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // Configure CORS
 const allowedOrigins = [
-  // Local development
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:3002',
-  // Development IP
-  'http://192.168.1.2:3001',
-  // Production domains
-  'https://admin.pinewraps.com',
-  'https://www.admin.pinewraps.com',
-  'https://pinewraps.com',
-  'https://www.pinewraps.com',
-  // API domains
-  'https://api.pinewraps.com',
-  'https://www.api.pinewraps.com'
+  'http://localhost:3000',  // Admin panel local
+  'http://localhost:3001',  // API local
+  'http://localhost:3002',  // Web local
 ];
+
+// Add production origins if defined
+const productionOrigin = process.env.FRONTEND_URL;
+if (productionOrigin) {
+  allowedOrigins.push(productionOrigin);
+}
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -69,43 +61,8 @@ app.use(morgan('dev'));
 app.use(cookieParser());
 
 // Basic route for API health check
-app.get('/api/health', (req: express.Request, res: express.Response) => {
-  try {
-    // Check database connection
-    prisma.$queryRaw`SELECT 1`
-      .then(() => {
-        res.json({
-          success: true,
-          status: 'healthy',
-          services: {
-            database: 'connected',
-            api: 'running'
-          },
-          timestamp: new Date().toISOString()
-        });
-      })
-      .catch((error) => {
-        console.error('Database health check failed:', error);
-        res.status(503).json({
-          success: false,
-          status: 'unhealthy',
-          services: {
-            database: 'disconnected',
-            api: 'running'
-          },
-          error: 'Database connection failed',
-          timestamp: new Date().toISOString()
-        });
-      });
-  } catch (error) {
-    console.error('Health check failed:', error);
-    res.status(500).json({
-      success: false,
-      status: 'unhealthy',
-      error: 'Internal server error',
-      timestamp: new Date().toISOString()
-    });
-  }
+app.get('/health', (req: express.Request, res: express.Response) => {
+  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
 // Routes
