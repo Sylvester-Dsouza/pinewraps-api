@@ -6,18 +6,32 @@ export class OrderAnalyticsService {
     const { startDate, previousStartDate } = this.calculateDateRanges(timeRange);
     const now = new Date();
 
-    const [orders, customers, revenue, previousRevenue] = await Promise.all([
+    const [
+      orders,
+      customers,
+      revenue,
+      previousRevenue,
+      pendingOrders,
+      processingOrders,
+      completedOrders
+    ] = await Promise.all([
       this.getTotalOrders(startDate, now),
       this.getUniqueCustomers(startDate, now),
       this.getTotalRevenue(startDate, now),
-      this.getTotalRevenue(previousStartDate, startDate)
+      this.getTotalRevenue(previousStartDate, startDate),
+      this.getOrdersByStatus(startDate, now, OrderStatus.PENDING),
+      this.getOrdersByStatus(startDate, now, OrderStatus.PROCESSING),
+      this.getOrdersByStatus(startDate, now, OrderStatus.COMPLETED)
     ]);
 
     return {
       totalOrders: orders,
       totalCustomers: customers.length,
       totalRevenue: revenue._sum.total || 0,
-      growthRate: this.calculateGrowth(revenue._sum.total, previousRevenue._sum.total)
+      monthlyGrowth: this.calculateGrowth(revenue._sum.total, previousRevenue._sum.total),
+      pendingOrders,
+      processingOrders,
+      completedOrders
     };
   }
 
@@ -91,6 +105,18 @@ export class OrderAnalyticsService {
       },
       _sum: {
         total: true
+      }
+    });
+  }
+
+  private static async getOrdersByStatus(startDate: Date, endDate: Date, status: OrderStatus) {
+    return prisma.order.count({
+      where: {
+        createdAt: {
+          gte: startDate,
+          lte: endDate
+        },
+        status
       }
     });
   }

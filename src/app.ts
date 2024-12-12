@@ -69,8 +69,8 @@ app.use('/api/admin-auth', adminAuthRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/coupons', couponRoutes);
 app.use('/api/rewards', rewardRoutes);
+app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
-app.use('/api/customer-auth', customerAuthRoutes);
 app.use('/api/payments', paymentRoutes);
 
 // Health check route (no /api prefix for easier access)

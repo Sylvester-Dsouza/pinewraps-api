@@ -157,7 +157,7 @@ export class CustomerController {
       const customer = await prisma.customer.findUnique({
         where: { firebaseUid: req.user!.uid },
         include: {
-          customerAddresses: {
+          addresses: {
             orderBy: [
               { isDefault: 'desc' },
               { createdAt: 'desc' }
@@ -219,7 +219,19 @@ export class CustomerController {
                 history: true
               }
             },
-            customerAddresses: true
+            addresses: true,
+            orders: {
+              take: 5,
+              orderBy: {
+                createdAt: 'desc'
+              }
+            },
+            rewardHistory: {
+              take: 10,
+              orderBy: {
+                createdAt: 'desc'
+              }
+            }
           }
         }),
         prisma.customer.count()
@@ -227,13 +239,25 @@ export class CustomerController {
 
       // Transform the response to match the frontend expectations
       const transformedCustomers = customers.map(customer => ({
-        ...customer,
-        addresses: customer.customerAddresses,
+        id: customer.id,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        birthDate: customer.birthDate,
+        isEmailVerified: customer.isEmailVerified,
+        provider: customer.provider,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt,
+        addresses: customer.addresses,
+        rewardPoints: customer.rewardPoints,
         reward: customer.reward || {
-          points: 0,
+          points: customer.rewardPoints,
           tier: 'BRONZE',
           history: []
-        }
+        },
+        orders: customer.orders,
+        rewardHistory: customer.rewardHistory
       }));
 
       return res.json({
@@ -273,7 +297,19 @@ export class CustomerController {
               history: true
             }
           },
-          customerAddresses: true
+          addresses: true,
+          orders: {
+            take: 5,
+            orderBy: {
+              createdAt: 'desc'
+            }
+          },
+          rewardHistory: {
+            take: 10,
+            orderBy: {
+              createdAt: 'desc'
+            }
+          }
         }
       });
 
@@ -289,14 +325,25 @@ export class CustomerController {
 
       // Transform the response to match the frontend expectations
       const transformedCustomer = {
-        ...customer,
-        addresses: customer.customerAddresses,
+        id: customer.id,
+        firstName: customer.firstName,
+        lastName: customer.lastName,
+        email: customer.email,
+        phone: customer.phone,
+        birthDate: customer.birthDate,
+        isEmailVerified: customer.isEmailVerified,
+        provider: customer.provider,
+        createdAt: customer.createdAt,
+        updatedAt: customer.updatedAt,
+        addresses: customer.addresses,
+        rewardPoints: customer.rewardPoints,
         reward: customer.reward || {
-          points: 0,
-          totalPoints: 0,
+          points: customer.rewardPoints,
           tier: 'BRONZE',
           history: []
-        }
+        },
+        orders: customer.orders,
+        rewardHistory: customer.rewardHistory
       };
 
       return res.json({

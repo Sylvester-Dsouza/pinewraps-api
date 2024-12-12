@@ -25,12 +25,19 @@ export class OrderController {
   static async getOrders(req: Request, res: Response) {
     try {
       console.log('User role:', req.user?.role);
-      const { page, limit, status, search } = GetOrdersQuerySchema.parse(req.query);
+      const { page = 1, limit = 10, status, search } = GetOrdersQuerySchema.parse(req.query);
       console.log('Query params:', { page, limit, status, search });
       
       const where: any = {};
-      if (status) {
+      
+      // Only add status filter if it's a valid OrderStatus
+      if (status && status !== 'all' && Object.values(OrderStatus).includes(status as OrderStatus)) {
         where.status = status;
+      }
+
+      // Add customer filter for non-admin users
+      if (req.user?.role === 'CUSTOMER') {
+        where.customerId = req.user.customerId;
       }
 
       const skip = (Number(page) - 1) * Number(limit);
@@ -43,9 +50,11 @@ export class OrderController {
           orderBy: { createdAt: 'desc' },
           include: {
             customer: true,
-            items: {
-              include: {
-                product: true
+            items: true,
+            payment: true,
+            statusHistory: {
+              orderBy: {
+                updatedAt: 'desc'
               }
             }
           }
@@ -54,10 +63,15 @@ export class OrderController {
       ]);
 
       return res.json({
-        orders,
-        total,
-        page: Number(page),
-        totalPages: Math.ceil(total / Number(limit))
+        success: true,
+        data: {
+          results: orders,
+          pagination: {
+            total,
+            page: Number(page),
+            limit: Number(limit)
+          }
+        }
       });
     } catch (error) {
       console.error('Get orders error:', error);
@@ -74,14 +88,29 @@ export class OrderController {
 
   static async getOrder(req: Request, res: Response) {
     try {
-      const { id } = req.params;
+      const { orderId } = req.params;
+      
+      if (!orderId) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_ORDER_ID',
+            message: 'Order ID is required'
+          }
+        });
+      }
+
       const order = await prisma.order.findUnique({
-        where: { id },
+        where: {
+          id: orderId
+        },
         include: {
           customer: true,
-          items: {
-            include: {
-              product: true
+          items: true,
+          payment: true,
+          statusHistory: {
+            orderBy: {
+              updatedAt: 'desc'
             }
           }
         }
@@ -206,11 +235,7 @@ export class OrderController {
         where: { id: orderId },
         include: {
           customer: true,
-          items: {
-            include: {
-              product: true
-            }
-          }
+          items: true
         }
       });
       
