@@ -202,6 +202,17 @@ export class PaymentService {
         lastStatusHistory: updatedOrder.statusHistory[0]
       });
 
+      // Send order confirmation email for successful credit card payments
+      if (status === 'CAPTURED') {
+        try {
+          const { OrderEmailService } = await import('./order-email.service');
+          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
+          console.log('Order confirmation email sent after successful payment');
+        } catch (error) {
+          console.error('Error sending order confirmation email after payment:', error);
+        }
+      }
+
       // Return the complete updated payment record with order
       return await prisma.payment.findUnique({
         where: { id: updatedPayment.id },

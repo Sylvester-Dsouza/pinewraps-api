@@ -14,6 +14,7 @@ router.get('/addresses', requireAuth, AddressController.getAddresses);
 router.post('/addresses', requireAuth, AddressController.createAddress);
 router.put('/addresses/:id', requireAuth, AddressController.updateAddress);
 router.delete('/addresses/:id', requireAuth, AddressController.deleteAddress);
+router.put('/addresses/:id/default', requireAuth, AddressController.setDefaultAddress);
 
 // Password reset endpoints with rate limiting
 router.post('/request-reset', apiLimiter, CustomerController.requestPasswordReset);

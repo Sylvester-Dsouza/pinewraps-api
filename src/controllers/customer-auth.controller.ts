@@ -99,6 +99,15 @@ export const customerAuth = {
         }
       });
 
+      // Send welcome email
+      try {
+        const { UserEmailService } = await import('../services/user-email.service');
+        await UserEmailService.sendWelcomeEmail(customer);
+        console.log('Welcome email sent to new customer');
+      } catch (error) {
+        console.error('Error sending welcome email:', error);
+      }
+
       // Set custom claims
       await auth.setCustomUserClaims(decodedToken.uid, {
         role: 'CUSTOMER',
@@ -265,6 +274,15 @@ export const customerAuth = {
               reward: true
             }
           });
+
+          // Send welcome email for new social auth users
+          try {
+            const { UserEmailService } = await import('../services/user-email.service');
+            await UserEmailService.sendWelcomeEmail(customer);
+            console.log('Welcome email sent to new social auth customer');
+          } catch (error) {
+            console.error('Error sending welcome email:', error);
+          }
 
           console.log('Created new customer:', { 
             id: customer.id, 

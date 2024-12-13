@@ -1,49 +1,118 @@
-import nodemailer from 'nodemailer';
 import { prisma } from '../lib/prisma';
+import { Order, OrderItem, Customer } from '@prisma/client';
+
+// Using require for Brevo SDK
+const SibApi = require('@sendinblue/client');
+
+interface OrderWithDetails extends Order {
+  customer: Customer;
+  items: OrderItem[];
+}
 
 export class OrderEmailService {
-  private static transporter = nodemailer.createTransport({
-    // Add your email configuration here
-    host: process.env.EMAIL_HOST,
-    port: Number(process.env.EMAIL_PORT),
-    secure: true,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
+  private static apiInstance: any;
+
+  static {
+    const apiKey = process.env.BREVO_API_KEY || '';
+    const apiInstance = new SibApi.TransactionalEmailsApi();
+    apiInstance.setApiKey(SibApi.TransactionalEmailsApiApiKeys.apiKey, apiKey);
+    this.apiInstance = apiInstance;
+  }
+
+  private static async sendEmail(params: {
+    to: { email: string; name: string };
+    templateId: number;
+    params: Record<string, any>;
+    subject: string;
+  }) {
+    const sendSmtpEmail = new SibApi.SendSmtpEmail();
+    
+    sendSmtpEmail.to = [params.to];
+    sendSmtpEmail.templateId = params.templateId;
+    sendSmtpEmail.params = params.params;
+    sendSmtpEmail.subject = params.subject;
+
+    try {
+      const result = await this.apiInstance.sendTransacEmail(sendSmtpEmail);
+      console.log('Email sent successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('Error sending email:', error);
+      throw error;
     }
-  });
-
-  static async sendOrderEmail(orderId: string, subject: string, body: string) {
-    const order = await prisma.order.findUnique({
-      where: { id: orderId },
-      include: { 
-        customer: true,
-        items: true,
-        delivery: true
-      }
-    });
-
-    if (!order) {
-      throw new Error('Order not found');
-    }
-
-    const mailOptions = {
-      from: process.env.EMAIL_FROM,
-      to: order.customer.email,
-      subject,
-      html: body
-    };
-
-    return this.transporter.sendMail(mailOptions);
   }
 
   static async sendOrderConfirmation(orderId: string) {
+    const order = await this.getOrderWithDetails(orderId);
+    
+    return this.sendEmail({
+      to: { 
+        email: order.customer.email, 
+        name: `${order.customer.firstName} ${order.customer.lastName}` 
+      },
+      templateId: Number(process.env.BREVO_ORDER_CONFIRMATION_TEMPLATE_ID),
+      params: {
+        order_number: order.orderNumber,
+        order_date: new Date(order.createdAt).toLocaleDateString(),
+        customer_name: `${order.customer.firstName} ${order.customer.lastName}`,
+        order_total: order.total.toFixed(2),
+        items: order.items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          price: item.price.toFixed(2),
+          variations: this.formatVariations(item.variations)
+        })),
+        delivery_method: order.deliveryMethod,
+        pickup_date: order.pickupDate ? new Date(order.pickupDate).toLocaleDateString() : null,
+        pickup_time: order.pickupTimeSlot,
+        delivery_date: order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : null,
+        delivery_time: order.deliveryTimeSlot,
+        shipping_address: order.deliveryMethod === 'DELIVERY' ? {
+          address: order.streetAddress,
+          apartment: order.apartment,
+          city: order.city,
+          emirate: order.emirate,
+          pincode: order.pincode
+        } : null,
+        payment_method: order.paymentMethod,
+        subtotal: order.subtotal.toFixed(2),
+        shipping_cost: order.deliveryCharge.toFixed(2),
+        total: order.total.toFixed(2)
+      },
+      subject: `Order Confirmation - ${order.orderNumber}`
+    });
+  }
+
+  static async sendOrderStatusUpdate(orderId: string, newStatus: string) {
+    const order = await this.getOrderWithDetails(orderId);
+    
+    return this.sendEmail({
+      to: { 
+        email: order.customer.email, 
+        name: `${order.customer.firstName} ${order.customer.lastName}` 
+      },
+      templateId: Number(process.env.BREVO_ORDER_STATUS_TEMPLATE_ID),
+      params: {
+        order_number: order.orderNumber,
+        customer_name: `${order.customer.firstName} ${order.customer.lastName}`,
+        order_status: newStatus,
+        order_date: new Date(order.createdAt).toLocaleDateString(),
+        delivery_method: order.deliveryMethod,
+        pickup_date: order.pickupDate ? new Date(order.pickupDate).toLocaleDateString() : null,
+        pickup_time: order.pickupTimeSlot,
+        delivery_date: order.deliveryDate ? new Date(order.deliveryDate).toLocaleDateString() : null,
+        delivery_time: order.deliveryTimeSlot
+      },
+      subject: `Order Status Update - ${order.orderNumber}`
+    });
+  }
+
+  private static async getOrderWithDetails(orderId: string): Promise<OrderWithDetails> {
     const order = await prisma.order.findUnique({
       where: { id: orderId },
       include: { 
         customer: true,
-        items: true,
-        delivery: true
+        items: true
       }
     });
 
@@ -51,78 +120,21 @@ export class OrderEmailService {
       throw new Error('Order not found');
     }
 
-    const subject = `Order Confirmation - ${order.orderNumber}`;
-    const body = this.generateOrderConfirmationEmail(order);
-
-    const mailOptions = {
-      from: process.env.EMAIL_FROM,
-      to: order.customer.email,
-      subject,
-      html: body
-    };
-
-    return this.transporter.sendMail(mailOptions);
+    return order as OrderWithDetails;
   }
 
-  private static generateOrderConfirmationEmail(order: any) {
-    return `
-      <h1>Order Confirmation</h1>
-      <p>Dear ${order.customer.firstName},</p>
-      <p>Thank you for your order! Here are your order details:</p>
+  private static formatVariations(variations: any): string {
+    try {
+      const variationsArray = typeof variations === 'string' ? 
+        JSON.parse(variations) : 
+        Array.isArray(variations) ? variations : [];
       
-      <h2>Order Information</h2>
-      <p>Order Number: ${order.orderNumber}</p>
-      <p>Order Date: ${new Date(order.date).toLocaleDateString()}</p>
-      <p>Order Status: ${order.status}</p>
-      
-      <h2>Items</h2>
-      <ul>
-        ${order.items.map((item: any) => {
-          // Parse variations if they're stored as a string
-          let variationsArray = [];
-          try {
-            if (typeof item.variations === 'string') {
-              variationsArray = JSON.parse(item.variations);
-            } else if (Array.isArray(item.variations)) {
-              variationsArray = item.variations;
-            }
-          } catch (e) {
-            console.error('Error parsing variations:', e);
-            variationsArray = [];
-          }
-
-          // Format variations for display
-          const variationsText = variationsArray
-            .map((v: any) => `${v.type}: ${v.value}`)
-            .join(', ');
-
-          return `
-            <li>
-              ${item.name}${variationsText ? ` (${variationsText})` : ''}
-              <br>Quantity: ${item.quantity}
-              <br>Price: AED ${item.price}
-              ${item.cakeWriting ? `<br>Cake Writing: ${item.cakeWriting}` : ''}
-            </li>
-          `;
-        }).join('')}
-      </ul>
-      
-      <h2>Delivery Details</h2>
-      <p>Method: ${order.delivery.type}</p>
-      <p>Date: ${new Date(order.delivery.requestedDate).toLocaleDateString()}</p>
-      <p>Time: ${order.delivery.requestedTime}</p>
-      ${order.delivery.storeLocation ? `<p>Store Location: ${order.delivery.storeLocation}</p>` : ''}
-      
-      <h2>Order Summary</h2>
-      <p>Subtotal: AED ${order.subtotal}</p>
-      ${order.deliveryFee ? `<p>Delivery Fee: AED ${order.deliveryFee}</p>` : ''}
-      ${order.giftWrapCharge ? `<p>Gift Wrap: AED ${order.giftWrapCharge}</p>` : ''}
-      ${order.discountAmount ? `<p>Discount: AED ${order.discountAmount}</p>` : ''}
-      <p><strong>Total: AED ${order.total}</strong></p>
-      
-      <p>If you have any questions about your order, please don't hesitate to contact us.</p>
-      
-      <p>Best regards,<br>The Pinewraps Team</p>
-    `;
+      return variationsArray
+        .map((v: any) => `${v.type}: ${v.value}`)
+        .join(', ');
+    } catch (e) {
+      console.error('Error parsing variations:', e);
+      return '';
+    }
   }
 }

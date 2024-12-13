@@ -217,6 +217,80 @@ export class AddressController {
     }
   }
 
+  // Set address as default
+  static async setDefaultAddress(req: Request, res: Response) {
+    try {
+      console.log('Setting address as default:', req.params.id);
+      
+      const { id } = req.params;
+
+      const customer = await prisma.customer.findUnique({
+        where: { firebaseUid: req.user!.uid }
+      });
+
+      if (!customer) {
+        console.log('Customer not found for UID:', req.user?.uid);
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'CUSTOMER_NOT_FOUND',
+            message: 'Customer not found'
+          }
+        });
+      }
+
+      // Verify address belongs to customer
+      const existingAddress = await prisma.customerAddress.findFirst({
+        where: {
+          id,
+          customerId: customer.id
+        }
+      });
+
+      if (!existingAddress) {
+        console.log('Address not found:', id);
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'ADDRESS_NOT_FOUND',
+            message: 'Address not found'
+          }
+        });
+      }
+
+      // Update all addresses to not be default
+      await prisma.customerAddress.updateMany({
+        where: {
+          customerId: customer.id,
+          id: { not: id }
+        },
+        data: { isDefault: false }
+      });
+
+      // Set the selected address as default
+      const address = await prisma.customerAddress.update({
+        where: { id },
+        data: { isDefault: true }
+      });
+
+      console.log('Updated address as default:', address);
+
+      res.json({
+        success: true,
+        data: address
+      });
+    } catch (error) {
+      console.error('Set default address error:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to set address as default'
+        }
+      });
+    }
+  }
+
   // Delete an address
   static async deleteAddress(req: Request, res: Response) {
     try {

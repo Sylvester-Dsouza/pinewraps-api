@@ -339,6 +339,15 @@ export class OrderService {
     // Send notification about new order
     OrderService.wsService?.notifyNewOrder(order);
 
+    // Send order confirmation email
+    try {
+      const { OrderEmailService } = await import('./order-email.service');
+      await OrderEmailService.sendOrderConfirmation(order.id);
+    } catch (error) {
+      console.error('Error sending order confirmation email:', error);
+      // Don't throw error here to prevent order creation from failing
+    }
+
     // Create reward history entry
     await prisma.rewardHistory.create({
       data: {
@@ -445,6 +454,15 @@ export class OrderService {
 
       // Transform the order before sending response
       const transformedOrder = OrderService.transformOrder(updatedOrder);
+
+      // Send order status update email
+      try {
+        const { OrderEmailService } = await import('./order-email.service');
+        await OrderEmailService.sendOrderStatusUpdate(orderId, status);
+        console.log('Order status update email sent');
+      } catch (error) {
+        console.error('Error sending order status update email:', error);
+      }
 
       // Notify through WebSocket if available
       if (OrderService.wsService) {

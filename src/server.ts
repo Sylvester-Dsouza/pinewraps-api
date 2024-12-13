@@ -4,7 +4,7 @@ import { initializeCategories } from './controllers/category.controller';
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Initialize fixed categories
 initializeCategories()
