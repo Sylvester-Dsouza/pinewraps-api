@@ -61,18 +61,12 @@ export class PaymentController {
 
         if (result.status === PaymentStatus.CAPTURED) {
           // Redirect to success page with order details
-          const successUrl = new URL('/checkout/success', frontendUrl);
-          successUrl.searchParams.set('ref', ref);
-          successUrl.searchParams.set('orderId', result.orderId);
-          successUrl.searchParams.set('orderNumber', result.orderNumber);
-          return res.redirect(successUrl.toString());
+          const successRedirect = `${frontendUrl}/checkout/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`;
+          return res.redirect(successRedirect);
         } else {
           // Handle failed payment
-          const errorUrl = new URL('/checkout/error', frontendUrl);
-          errorUrl.searchParams.set('ref', ref);
-          errorUrl.searchParams.set('message', result.errorMessage || 'Payment verification failed');
-          errorUrl.searchParams.set('status', 'FAILED');
-          return res.redirect(errorUrl.toString());
+          const errorRedirect = `${frontendUrl}/checkout/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}&status=FAILED`;
+          return res.redirect(errorRedirect);
         }
       } catch (error) {
         console.error('Error processing payment:', error);

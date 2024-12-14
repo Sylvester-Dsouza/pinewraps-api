@@ -352,20 +352,20 @@ export class PaymentService {
         apiUrl: this.apiUrl,
         outletRef: this.outletRef,
         environment: process.env.NODE_ENV,
-        redirectUrl: `${baseUrl}/api/payments/callback`,
-        cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`
+        redirectUrl: paymentConfig.ngenius.redirectUrl,
+        cancelUrl: paymentConfig.ngenius.cancelUrl,
       });
 
       const payload = {
-        action: "SALE",
+        action: paymentConfig.ngenius.paymentAction,
         amount: {
-          currencyCode: "AED",
+          currencyCode: paymentConfig.ngenius.currency,
           value: Math.round(order.total * 100)
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl: `${baseUrl}/api/payments/callback`,
-          cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`,
+          redirectUrl: paymentConfig.ngenius.redirectUrl,
+          cancelUrl: paymentConfig.ngenius.cancelUrl,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",
@@ -412,7 +412,7 @@ export class PaymentService {
         data: {
           orderId: order.id,
           amount: order.total,
-          currency: "AED",
+          currency: paymentConfig.ngenius.currency,
           status: PaymentStatus.PENDING,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           merchantOrderId: response.data.reference,
