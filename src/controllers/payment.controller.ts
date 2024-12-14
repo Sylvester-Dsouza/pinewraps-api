@@ -45,93 +45,48 @@ export class PaymentController {
 
       if (!ref || typeof ref !== 'string') {
         console.error('Payment callback received without reference');
-        console.log('Redirecting to error URL due to missing reference');
-        console.log('=== PAYMENT CALLBACK END ===');
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
       // If payment was cancelled by user
       if (cancelled === 'true') {
         console.log('Payment was cancelled by user');
-        const errorUrl = new URL('/checkout/error', frontendUrl);
-        errorUrl.searchParams.set('ref', ref);
-        errorUrl.searchParams.set('message', 'Payment was cancelled');
-        errorUrl.searchParams.set('status', 'CANCELLED');
-        console.log('Redirecting to error URL due to cancellation:', errorUrl.toString());
-        console.log('=== PAYMENT CALLBACK END ===');
-        return res.redirect(errorUrl.toString());
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
       }
 
       console.log('Processing payment callback for reference:', ref);
-      
-      // First, get the current payment status from the gateway
       const paymentService = new PaymentService();
       
-      console.log('Fetching payment status from N-Genius...');
+      // Get payment status from N-Genius
       const gatewayStatus = await paymentService.getPaymentStatus(ref);
-      console.log('N-Genius Raw Response:', JSON.stringify(gatewayStatus, null, 2));
+      console.log('N-Genius Payment Status:', gatewayStatus);
 
-      // Process the callback and update payment status
-      console.log('Processing payment callback...');
-      const payment = await paymentService.handleCallback(ref);
-      
-      console.log('Payment processing result:', {
-        status: payment?.status,
-        orderId: payment?.orderId,
-        paymentMethod: payment?.paymentMethod,
-        errorMessage: payment?.errorMessage
+      // Get payment state from embedded payment object
+      const payment = gatewayStatus._embedded?.payment?.[0];
+      const paymentState = payment?.state?.toUpperCase();
+
+      console.log('Payment State:', {
+        raw: payment?.state,
+        normalized: paymentState,
+        embedded: gatewayStatus._embedded?.payment
       });
-      
-      // Double verify the payment was updated correctly
-      console.log('Performing final verification...');
-      const updatedPayment = await prisma.payment.findFirst({
-        where: { merchantOrderId: ref },
-        include: { 
-          order: {
-            include: {
-              statusHistory: {
-                orderBy: {
-                  updatedAt: 'desc'
-                },
-                take: 1
-              }
-            }
-          }
-        }
-      });
-      
-      console.log('Final database state:', {
-        paymentStatus: updatedPayment?.status,
-        orderStatus: updatedPayment?.order?.status,
-        paymentMethod: updatedPayment?.paymentMethod,
-        errorMessage: updatedPayment?.errorMessage,
-        lastStatusHistory: updatedPayment?.order?.statusHistory[0]
-      });
-      
-      // Return payment details in JSON format
-      return res.json({
-        status: updatedPayment?.status,
-        orderId: updatedPayment?.orderId,
-        orderNumber: updatedPayment?.order?.orderNumber,
-        errorMessage: updatedPayment?.errorMessage,
-        paymentMethod: updatedPayment?.paymentMethod,
-        order: {
-          id: updatedPayment?.orderId,
-          orderNumber: updatedPayment?.order?.orderNumber,
-          status: updatedPayment?.order?.status,
-          total: updatedPayment?.order?.total
-        }
-      });
-    } catch (error) {
-      console.error('=== PAYMENT CALLBACK ERROR ===');
-      console.error('Error in handleCallback:', error);
-      if (error.response) {
-        console.error('Error Response:', error.response.data);
+
+      // Define success states
+      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
+      const isSuccess = successStates.includes(paymentState);
+
+      if (isSuccess) {
+        console.log(`Payment successful with state: ${paymentState}`);
+        await paymentService.handleCallback(ref);
+        return res.redirect(`${frontendUrl}/checkout/success?ref=${ref}`);
+      } else {
+        console.log(`Payment failed with state: ${paymentState}`);
+        const errorMessage = payment?.message || 'Payment verification failed';
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}&status=${paymentState || 'FAILED'}`);
       }
-      const errorMessage = error instanceof Error ? error.message : 'Payment processing failed';
-      console.log('Redirecting to error URL due to exception');
-      console.log('=== PAYMENT CALLBACK END ===');
-      res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}`);
+    } catch (error) {
+      console.error('Error processing payment callback:', error);
+      return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
     }
   }
 

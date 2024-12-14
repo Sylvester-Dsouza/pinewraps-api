@@ -106,13 +106,21 @@ export class PaymentService {
       const gatewayStatus = await this.getPaymentStatus(ref);
       
       // Extract payment state from embedded payment object
-      const payment = gatewayStatus?._embedded?.payment?.[0];
-      const paymentState = payment?.state?.toUpperCase();
-      
+      const payment = gatewayStatus._embedded?.payment?.[0];
+      if (!payment) {
+        throw new Error('No payment data found in gateway response');
+      }
+
+      const paymentState = payment.state?.toUpperCase();
+      console.log('Processing payment state:', {
+        state: paymentState,
+        rawResponse: payment
+      });
+
       // Define success states
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
-      const status = successStates.includes(paymentState) ? 'CAPTURED' : 'FAILED';
-      const errorMessage = status === 'FAILED' ? (payment?.message || 'Payment verification failed') : null;
+      const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
+      const errorMessage = status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null;
 
       // Update payment record
       const updatedPayment = await prisma.payment.update({
@@ -121,12 +129,19 @@ export class PaymentService {
           status,
           errorMessage,
           gatewayResponse: gatewayStatus,
-          updatedAt: new Date()
+          updatedAt: new Date(),
+          paymentMethod: PaymentMethod.CREDIT_CARD
         }
       });
 
+      console.log('Updated payment record:', {
+        id: updatedPayment.id,
+        status,
+        errorMessage
+      });
+
       // Update order status
-      const orderStatus = status === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
+      const orderStatus = status === PaymentStatus.CAPTURED ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
       const updatedOrder = await prisma.order.update({
         where: { id: updatedPayment.orderId },
         data: {
@@ -135,32 +150,44 @@ export class PaymentService {
           statusHistory: {
             create: {
               status: orderStatus,
-              notes: status === 'CAPTURED' ? 'Payment successful' : `Payment failed: ${errorMessage}`,
+              notes: status === PaymentStatus.CAPTURED 
+                ? 'Payment successful' 
+                : `Payment failed: ${errorMessage}`,
               updatedBy: 'SYSTEM'
             }
           }
+        },
+        include: {
+          customer: true
         }
       });
 
+      console.log('Updated order record:', {
+        id: updatedOrder.id,
+        status: orderStatus,
+        paymentStatus: status
+      });
+
       // Send confirmation email for successful payments
-      if (status === 'CAPTURED') {
-        const { OrderEmailService } = await import('./order-email.service');
-        await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
+      if (status === PaymentStatus.CAPTURED) {
+        try {
+          const { OrderEmailService } = await import('./order-email.service');
+          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
+          console.log('Order confirmation email sent');
+        } catch (emailError) {
+          console.error('Failed to send order confirmation email:', emailError);
+        }
       }
 
-      // Return redirect URL based on status
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-      const redirectUrl = status === 'CAPTURED'
-        ? `${baseUrl}/checkout/success?orderId=${updatedOrder.id}`
-        : `${baseUrl}/checkout/error?message=${encodeURIComponent(errorMessage || 'Payment verification failed')}&orderId=${updatedOrder.id}&ref=${ref}`;
-
-      return { redirectUrl };
-    } catch (error) {
-      console.error('Error handling payment callback:', error);
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
       return {
-        redirectUrl: `${baseUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`
+        status,
+        orderId: updatedOrder.id,
+        orderNumber: updatedOrder.orderNumber,
+        errorMessage
       };
+    } catch (error) {
+      console.error('Error in handleCallback:', error);
+      throw error;
     }
   }
 
