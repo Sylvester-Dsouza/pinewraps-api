@@ -1,5 +1,5 @@
 const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-const baseUrl = process.env.API_URL || 'https://api.pinewraps.com';
+const apiUrl = 'https://pinewraps-api.onrender.com';
 
 export const paymentConfig = {
   ngenius: {
@@ -7,8 +7,8 @@ export const paymentConfig = {
     apiUrl: process.env.NGENIUS_API_URL || 'https://api-gateway.sandbox.ngenius-payments.com',
     outletRef: process.env.NGENIUS_OUTLET_REF,
     merchantId: process.env.NGENIUS_MERCHANT_ID,
-    redirectUrl: `${frontendUrl}/api/payments/callback`,
-    cancelUrl: `${frontendUrl}/api/payments/callback?cancelled=true`,
+    redirectUrl: `${apiUrl}/payments/callback`,
+    cancelUrl: `${apiUrl}/payments/callback?cancelled=true`,
     environment: process.env.NODE_ENV,
     baseUrl: frontendUrl,
     currency: 'AED',
