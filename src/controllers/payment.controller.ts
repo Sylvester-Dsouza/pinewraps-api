@@ -108,30 +108,14 @@ export class PaymentController {
         lastStatusHistory: updatedPayment?.order?.statusHistory[0]
       });
       
-      console.log('Determining redirect URL...');
-      // Always redirect to error page for failed or pending payments
-      if (updatedPayment?.status !== 'CAPTURED' || updatedPayment?.order?.status !== 'PROCESSING') {
-        const errorUrl = new URL('/checkout/error', frontendUrl);
-        errorUrl.searchParams.set('ref', ref.toString());
-        errorUrl.searchParams.set('message', updatedPayment?.errorMessage || 'Payment was not successful');
-        errorUrl.searchParams.set('status', updatedPayment?.status || 'UNKNOWN');
-        if (updatedPayment?.orderId) {
-          errorUrl.searchParams.set('orderId', updatedPayment.orderId);
-        }
-        
-        console.log('Redirecting to error URL:', errorUrl.toString());
-        console.log('=== PAYMENT CALLBACK END ===');
-        return res.redirect(errorUrl.toString());
-      }
-
-      // Only redirect to success page if payment is captured and order is processing
-      const successUrl = new URL('/checkout/success', frontendUrl);
-      successUrl.searchParams.set('orderId', updatedPayment.orderId);
-      successUrl.searchParams.set('ref', ref.toString());
-      
-      console.log('Redirecting to success URL:', successUrl.toString());
-      console.log('=== PAYMENT CALLBACK END ===');
-      res.redirect(successUrl.toString());
+      // Return payment details in JSON format
+      return res.json({
+        status: updatedPayment?.status,
+        orderId: updatedPayment?.orderId,
+        orderNumber: updatedPayment?.order?.orderNumber,
+        errorMessage: updatedPayment?.errorMessage,
+        paymentMethod: updatedPayment?.paymentMethod
+      });
     } catch (error) {
       console.error('=== PAYMENT CALLBACK ERROR ===');
       console.error('Error in handleCallback:', error);
