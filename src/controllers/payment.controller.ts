@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { PaymentService } from '../services/payment.service';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PaymentStatus } from '@prisma/client';
 import { paymentConfig } from '../config/payment.config';
 
 const prisma = new PrismaClient();
@@ -55,7 +55,7 @@ export class PaymentController {
       const paymentService = new PaymentService();
       
       try {
-        // Get payment status from N-Genius
+        // Process payment and get result
         const result = await paymentService.handleCallback(ref);
         console.log('Payment processed successfully:', result);
 
