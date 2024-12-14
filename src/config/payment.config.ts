@@ -1,5 +1,5 @@
 const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-const apiUrl = 'https://pinewraps-api.onrender.com';
+const apiUrl = process.env.API_URL || 'https://pinewraps-api.onrender.com';
 
 export const paymentConfig = {
   ngenius: {
