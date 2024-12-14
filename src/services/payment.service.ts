@@ -364,8 +364,8 @@ export class PaymentService {
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl: `${baseUrl}/api/payments/callback`,
-          cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`,
+          redirectUrl: `${baseUrl}/checkout/success`,
+          cancelUrl: `${baseUrl}/checkout/error`,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",

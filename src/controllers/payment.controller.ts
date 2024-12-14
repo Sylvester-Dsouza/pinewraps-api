@@ -46,12 +46,6 @@ export class PaymentController {
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
-      // If payment was cancelled by user
-      if (req.query.cancelled === 'true') {
-        console.log('Payment was cancelled by user');
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
-      }
-
       const paymentService = new PaymentService();
       
       // Get payment status from N-Genius
@@ -76,23 +70,14 @@ export class PaymentController {
 
       if (isSuccess) {
         // Redirect to success page with order details
-        const successUrl = new URL('/checkout/success', frontendUrl);
-        successUrl.searchParams.set('ref', ref);
-        successUrl.searchParams.set('orderId', result.orderId);
-        successUrl.searchParams.set('orderNumber', result.orderNumber);
-        successUrl.searchParams.set('status', 'CAPTURED');
-        return res.redirect(successUrl.toString());
+        return res.redirect(`${frontendUrl}/checkout/success?ref=${ref}&orderId=${result.orderId}&orderNumber=${result.orderNumber}&status=CAPTURED`);
       } else {
         // Handle failed payment
         const errorMessage = payment.message || 'Payment verification failed';
         console.log('Payment failed:', { state: paymentState, message: errorMessage });
 
         // Redirect to error page with details
-        const errorUrl = new URL('/checkout/error', frontendUrl);
-        errorUrl.searchParams.set('ref', ref);
-        errorUrl.searchParams.set('message', errorMessage);
-        errorUrl.searchParams.set('status', 'FAILED');
-        return res.redirect(errorUrl.toString());
+        return res.redirect(`${frontendUrl}/checkout/error?ref=${ref}&message=${encodeURIComponent(errorMessage)}&status=FAILED`);
       }
     } catch (error) {
       console.error('Error processing payment callback:', error);
