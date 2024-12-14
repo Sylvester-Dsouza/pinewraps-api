@@ -241,7 +241,7 @@ export class PaymentService {
         orderNumber: order.orderNumber,
         total: order.total,
         customerEmail: order.customer.email,
-        merchantId: paymentConfig.ngenius.merchantId
+        deliveryType: order.deliveryType
       });
 
       const accessToken = await this.getAccessToken();
@@ -249,16 +249,46 @@ export class PaymentService {
       // Use the frontend URL from environment variables
       const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 
-      console.log('Payment Configuration:', {
-        ...paymentConfig.ngenius,
+      // Default store address for pickup orders
+      const storeAddress = {
+        address1: "Jumeirah 1",
+        city: "Dubai",
+        countryCode: "AE",
+        postcode: "12345"
+      };
+
+      // Determine billing address based on delivery type
+      const billingAddress = order.deliveryType === 'DELIVERY' && order.shippingAddress
+        ? {
+            firstName: order.customer.firstName || 'Guest',
+            lastName: order.customer.lastName || 'Customer',
+            address1: order.shippingAddress.street || 'Not Provided',
+            apartment: order.shippingAddress.apartment,
+            city: order.shippingAddress.city || 'Dubai',
+            countryCode: "AE",
+            postcode: order.shippingAddress.pincode || '12345'
+          }
+        : {
+            firstName: order.customer.firstName || 'Guest',
+            lastName: order.customer.lastName || 'Customer',
+            address1: storeAddress.address1,
+            city: storeAddress.city,
+            countryCode: storeAddress.countryCode,
+            postcode: storeAddress.postcode
+          };
+
+      console.log('N-Genius Configuration:', {
+        apiUrl: this.apiUrl,
+        outletRef: this.outletRef,
+        environment: process.env.NODE_ENV,
         redirectUrl: `${baseUrl}/api/payments/callback`,
         cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`
       });
 
       const payload = {
-        action: paymentConfig.ngenius.paymentAction,
+        action: "SALE",
         amount: {
-          currencyCode: paymentConfig.ngenius.currency,
+          currencyCode: "AED",
           value: Math.round(order.total * 100)
         },
         merchantOrderReference: order.orderNumber,
@@ -269,21 +299,20 @@ export class PaymentService {
           skip3DS: false,
           paymentOperation: "PURCHASE",
           paymentType: "CARD",
-          paymentBrand: "ALL",
-          merchantId: paymentConfig.ngenius.merchantId
+          paymentBrand: "ALL"
         },
         emailAddress: order.customer.email,
         billingAddress: {
-          firstName: order.customer.firstName,
-          lastName: order.customer.lastName,
-          address1: order.shippingAddress?.address1 || "Not Provided",
-          city: order.shippingAddress?.city || "Dubai",
-          countryCode: "AE"
+          ...billingAddress,
+          phoneNumber: order.customer.phone || '+971500000000' // Default UAE phone if not provided
         },
         language: "en"
       };
 
-      console.log('Payment payload:', JSON.stringify(payload, null, 2));
+      console.log('N-Genius Request:', {
+        url: `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
+        payload: JSON.stringify(payload, null, 2)
+      });
 
       const response = await axios.post(
         `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
@@ -297,7 +326,11 @@ export class PaymentService {
         }
       );
 
-      console.log('Payment gateway response:', JSON.stringify(response.data, null, 2));
+      console.log('N-Genius Response:', {
+        status: response.status,
+        data: JSON.stringify(response.data, null, 2),
+        paymentUrl: response.data._links?.payment?.href
+      });
 
       if (!response.data?._links?.payment?.href) {
         console.error('Invalid payment gateway response:', response.data);
@@ -308,7 +341,7 @@ export class PaymentService {
         data: {
           orderId: order.id,
           amount: order.total,
-          currency: paymentConfig.ngenius.currency,
+          currency: "AED",
           status: PaymentStatus.PENDING,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           merchantOrderId: response.data.reference,
@@ -320,7 +353,8 @@ export class PaymentService {
       console.log('Created payment record:', {
         paymentId: payment.id,
         status: payment.status,
-        merchantOrderId: payment.merchantOrderId
+        merchantOrderId: payment.merchantOrderId,
+        paymentOrderId: payment.paymentOrderId
       });
 
       return {
@@ -328,11 +362,11 @@ export class PaymentService {
       };
     } catch (error) {
       if (axios.isAxiosError(error)) {
-        console.error('Network error creating payment:', {
+        console.error('N-Genius API Error:', {
           status: error.response?.status,
           data: error.response?.data,
           message: error.message,
-          errors: error.response?.data?.errors // Log detailed validation errors
+          errors: error.response?.data?.errors
         });
         throw new Error(`Payment gateway error: ${error.response?.data?.message || error.message}`);
       }
