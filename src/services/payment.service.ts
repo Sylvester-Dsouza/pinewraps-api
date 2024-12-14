@@ -117,27 +117,22 @@ export class PaymentService {
         errorMessage = payment?.message || `Payment ${paymentState?.toLowerCase() || 'failed'}`;
         console.log('Payment explicitly failed. State:', paymentState, 'Error:', errorMessage);
       }
-      // Then check 3DS authentication state
-      else if (authenticationState === 'FAILURE') {
+      // Then check 3DS authentication state if present
+      else if (payment?.['3ds'] && authenticationState === 'FAILURE') {
         status = 'FAILED';
         errorMessage = payment?.['3ds']?.summaryText || '3D Secure authentication failed';
         console.log('Payment failed due to 3DS authentication failure');
-      } 
-      // Handle successful payments
-      else if (paymentState === 'CAPTURED') {
+      }
+      // Handle successful payments - PURCHASED or CAPTURED are both success states
+      else if (paymentState === 'CAPTURED' || paymentState === 'PURCHASED' || paymentState === 'AUTHORISED' || paymentState === 'AUTHORIZED') {
         status = 'CAPTURED';
         console.log('Payment marked as CAPTURED. Original state:', paymentState);
       }
-      // Handle authorized but not captured payments
-      else if (paymentState === 'AUTHORISED' || paymentState === 'AUTHORIZED') {
-        status = 'PENDING';
-        console.log('Payment marked as PENDING (authorized). Original state:', paymentState);
-      }
-      // Any other state is considered a failure
+      // Any other state is considered pending
       else {
-        status = 'FAILED';
-        errorMessage = payment?.message || 'Payment was not successful';
-        console.log('Payment marked as FAILED. Unhandled state:', paymentState, 'Error:', errorMessage);
+        status = 'PENDING';
+        errorMessage = 'Payment is being processed';
+        console.log('Payment marked as PENDING. State:', paymentState);
       }
 
       console.log('Final status decision:', {
