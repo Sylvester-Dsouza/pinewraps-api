@@ -13,7 +13,7 @@ function validateConfig(): ServiceAccount {
     clientX509CertUrl: process.env.FIREBASE_CLIENT_X509_CERT_URL,
   } as ServiceAccount;
 
-  // Validate required fields
+  // Validate required fields required
   const requiredFields = ['projectId', 'privateKey', 'clientEmail'] as const;
 
   for (const field of requiredFields) {
