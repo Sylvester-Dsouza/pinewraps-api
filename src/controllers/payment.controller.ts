@@ -36,12 +36,10 @@ export class PaymentController {
 
   static async handleCallback(req: Request, res: Response) {
     try {
-      const { ref, cancelled } = req.query;
+      const { ref } = req.query;
 
       console.log('=== PAYMENT CALLBACK START ===');
       console.log('Callback Query Parameters:', req.query);
-      console.log('Callback Headers:', req.headers);
-      console.log('Callback Body:', req.body);
 
       if (!ref || typeof ref !== 'string') {
         console.error('Payment callback received without reference');
@@ -49,40 +47,51 @@ export class PaymentController {
       }
 
       // If payment was cancelled by user
-      if (cancelled === 'true') {
+      if (req.query.cancelled === 'true') {
         console.log('Payment was cancelled by user');
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
       }
 
-      console.log('Processing payment callback for reference:', ref);
       const paymentService = new PaymentService();
       
       // Get payment status from N-Genius
       const gatewayStatus = await paymentService.getPaymentStatus(ref);
-      console.log('N-Genius Payment Status:', gatewayStatus);
-
-      // Get payment state from embedded payment object
       const payment = gatewayStatus._embedded?.payment?.[0];
-      const paymentState = payment?.state?.toUpperCase();
+      
+      if (!payment) {
+        console.error('No payment data found in gateway response');
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment verification failed')}&ref=${ref}`);
+      }
 
-      console.log('Payment State:', {
-        raw: payment?.state,
-        normalized: paymentState,
-        embedded: gatewayStatus._embedded?.payment
-      });
+      const paymentState = payment.state?.toUpperCase();
+      console.log('Payment State:', { state: paymentState, payment });
 
       // Define success states
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
       const isSuccess = successStates.includes(paymentState);
 
       if (isSuccess) {
-        console.log(`Payment successful with state: ${paymentState}`);
-        await paymentService.handleCallback(ref);
-        return res.redirect(`${frontendUrl}/checkout/success?ref=${ref}`);
+        // Process successful payment
+        const result = await paymentService.handleCallback(ref);
+        console.log('Payment processed successfully:', result);
+
+        // Redirect to success page with order details
+        const successUrl = new URL('/checkout/success', frontendUrl);
+        successUrl.searchParams.set('ref', ref);
+        successUrl.searchParams.set('orderId', result.orderId);
+        successUrl.searchParams.set('orderNumber', result.orderNumber);
+        return res.redirect(successUrl.toString());
       } else {
-        console.log(`Payment failed with state: ${paymentState}`);
-        const errorMessage = payment?.message || 'Payment verification failed';
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}&status=${paymentState || 'FAILED'}`);
+        // Handle failed payment
+        const errorMessage = payment.message || 'Payment verification failed';
+        console.log('Payment failed:', { state: paymentState, message: errorMessage });
+
+        // Redirect to error page with details
+        const errorUrl = new URL('/checkout/error', frontendUrl);
+        errorUrl.searchParams.set('ref', ref);
+        errorUrl.searchParams.set('message', errorMessage);
+        errorUrl.searchParams.set('status', paymentState || 'FAILED');
+        return res.redirect(errorUrl.toString());
       }
     } catch (error) {
       console.error('Error processing payment callback:', error);
