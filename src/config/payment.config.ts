@@ -6,6 +6,7 @@ export const paymentConfig = {
     apiKey: process.env.NGENIUS_API_KEY,
     apiUrl: process.env.NGENIUS_API_URL || 'https://api-gateway.sandbox.ngenius-payments.com',
     outletRef: process.env.NGENIUS_OUTLET_REF,
+    merchantId: process.env.NGENIUS_MERCHANT_ID,
     redirectUrl: `${frontendUrl}/api/payments/callback`,
     cancelUrl: `${frontendUrl}/api/payments/callback?cancelled=true`,
     environment: process.env.NODE_ENV,

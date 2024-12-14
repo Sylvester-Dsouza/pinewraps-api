@@ -20,6 +20,12 @@ export class PaymentService {
         return this.accessToken;
       }
 
+      console.log('Getting N-Genius access token from:', {
+        apiUrl: this.apiUrl,
+        outletRef: this.outletRef,
+        environment: process.env.NODE_ENV
+      });
+
       const response = await axios.post(
         `${this.apiUrl}/identity/auth/access-token`,
         {},
@@ -31,10 +37,19 @@ export class PaymentService {
         }
       );
 
+      console.log('N-Genius auth response:', {
+        status: response.status,
+        hasToken: !!response.data.access_token
+      });
+
       this.accessToken = response.data.access_token;
       return this.accessToken;
     } catch (error) {
-      console.error('Error getting access token:', error);
+      console.error('Error getting access token:', {
+        error: error.message,
+        response: error.response?.data,
+        apiUrl: this.apiUrl
+      });
       throw new Error('Failed to get access token');
     }
   }
@@ -225,7 +240,8 @@ export class PaymentService {
         orderId: order.id,
         orderNumber: order.orderNumber,
         total: order.total,
-        customerEmail: order.customer.email
+        customerEmail: order.customer.email,
+        merchantId: paymentConfig.ngenius.merchantId
       });
 
       const accessToken = await this.getAccessToken();
@@ -253,7 +269,8 @@ export class PaymentService {
           skip3DS: false,
           paymentOperation: "PURCHASE",
           paymentType: "CARD",
-          paymentBrand: "ALL"
+          paymentBrand: "ALL",
+          merchantId: paymentConfig.ngenius.merchantId
         },
         emailAddress: order.customer.email,
         billingAddress: {
