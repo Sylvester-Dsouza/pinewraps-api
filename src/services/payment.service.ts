@@ -84,113 +84,88 @@ export class PaymentService {
 
   async handleCallback(ref: string): Promise<any> {
     try {
-      const gatewayStatus = await this.getPaymentStatus(ref);
+      console.log('Processing payment callback for ref:', ref);
       
-      // Extract payment state from embedded payment object
-      const payment = gatewayStatus._embedded?.payment?.[0];
-      if (!payment) {
-        throw new Error('No payment data found in gateway response');
-      }
-
-      const paymentState = payment.state?.toUpperCase();
-      const merchantOrderRef = payment.merchantOrderReference;
+      // Get payment status from N-Genius
+      const paymentDetails = await this.getPaymentStatus(ref);
+      const paymentState = paymentDetails._embedded?.payment?.[0]?.state?.toUpperCase();
       
-      console.log('Processing payment:', {
-        state: paymentState,
-        orderRef: merchantOrderRef,
-        paymentRef: payment.reference,
-        orderReference: payment.orderReference
-      });
+      console.log('Payment state from N-Genius:', paymentState);
 
-      // Find payment record by merchantOrderReference
-      const paymentRecord = await prisma.payment.findFirst({
+      // Find payment record using multiple references
+      const payment = await prisma.payment.findFirst({
         where: {
           OR: [
-            { merchantOrderId: merchantOrderRef }, // Order number (e.g., ORD-2412-0038)
-            { paymentOrderId: ref }, // N-Genius order reference
-            { paymentReference: payment.reference } // N-Genius payment reference
+            { merchantOrderId: ref },
+            { paymentOrderId: ref },
+            { paymentReference: ref }
           ]
+        },
+        include: {
+          order: true
         }
       });
 
-      if (!paymentRecord) {
-        console.error('Payment record not found for:', {
-          merchantOrderRef,
-          orderRef: ref,
-          paymentRef: payment.reference
-        });
-        throw new Error('Payment record not found');
+      if (!payment) {
+        throw new Error(`Payment record not found for reference: ${ref}`);
       }
 
-      console.log('Found payment record:', {
-        id: paymentRecord.id,
-        merchantOrderId: paymentRecord.merchantOrderId,
-        paymentOrderId: paymentRecord.paymentOrderId
-      });
+      // Map N-Genius states to our payment states
+      let finalPaymentStatus;
+      if (['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED', 'SALE'].includes(paymentState)) {
+        finalPaymentStatus = 'CAPTURED';
+      } else if (['FAILED', 'DECLINED', 'CANCELLED', 'ERROR'].includes(paymentState)) {
+        finalPaymentStatus = 'FAILED';
+      } else {
+        finalPaymentStatus = paymentState;
+      }
 
-      // Define success states
-      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
-      const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
+      console.log('Mapping payment state:', { original: paymentState, final: finalPaymentStatus });
 
       // Update payment record
       const updatedPayment = await prisma.payment.update({
-        where: { id: paymentRecord.id },
+        where: { id: payment.id },
         data: {
-          status,
-          paymentReference: payment.reference,
-          errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null,
-          gatewayResponse: gatewayStatus,
-          updatedAt: new Date(),
-          paymentMethod: PaymentMethod.CREDIT_CARD
+          status: finalPaymentStatus,
+          gatewayResponse: paymentDetails,
+          updatedAt: new Date()
         }
       });
 
       // Update order status
-      const orderStatus = status === PaymentStatus.CAPTURED ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
-      const updatedOrder = await prisma.order.update({
-        where: { id: updatedPayment.orderId },
+      const orderStatus = finalPaymentStatus === 'CAPTURED' ? 'PROCESSING' : 'CANCELLED';
+      await prisma.order.update({
+        where: { id: payment.orderId },
         data: {
           status: orderStatus,
-          paymentStatus: status,
+          paymentStatus: finalPaymentStatus,
           statusHistory: {
             create: {
               status: orderStatus,
-              notes: status === PaymentStatus.CAPTURED 
+              notes: finalPaymentStatus === 'CAPTURED' 
                 ? 'Payment successful' 
-                : `Payment failed: ${payment.message || 'Payment verification failed'}`,
+                : `Payment failed: ${paymentDetails._embedded?.payment?.[0]?.message || 'Unknown error'}`,
               updatedBy: 'SYSTEM'
             }
           }
-        },
-        include: {
-          customer: true,
-          items: true
         }
       });
 
-      // Send confirmation email for successful payments
-      if (status === PaymentStatus.CAPTURED) {
-        try {
-          const { OrderEmailService } = require('./order-email.service');
-          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
-          console.log('Order confirmation email sent successfully');
-        } catch (emailError) {
-          console.error('Failed to send order confirmation email:', emailError);
-        }
-      }
+      console.log('Payment processed successfully:', {
+        paymentId: payment.id,
+        orderId: payment.orderId,
+        status: finalPaymentStatus
+      });
 
       return {
-        status,
-        orderId: updatedOrder.id,
-        orderNumber: updatedOrder.orderNumber,
-        errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null
+        success: finalPaymentStatus === 'CAPTURED',
+        status: finalPaymentStatus,
+        orderId: payment.orderId,
+        orderNumber: payment.order.orderNumber
       };
     } catch (error) {
       console.error('Error in handleCallback:', error);
-      if (error.response) {
-        console.error('Response error:', error.response.data);
-      }
-      throw new Error(error.message || 'Failed to process payment callback');
+      throw error;
     }
   }
 
