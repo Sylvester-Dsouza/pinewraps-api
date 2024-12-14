@@ -104,133 +104,63 @@ export class PaymentService {
   async handleCallback(ref: string): Promise<any> {
     try {
       const gatewayStatus = await this.getPaymentStatus(ref);
-      console.log('Gateway payment status:', JSON.stringify(gatewayStatus, null, 2));
-
-      let status: PaymentStatus = 'FAILED';
-      let errorMessage: string | null = null;
-
-      // Extract payment state and 3DS state from embedded payment object
+      
+      // Extract payment state from embedded payment object
       const payment = gatewayStatus?._embedded?.payment?.[0];
       const paymentState = payment?.state?.toUpperCase();
-      const authenticationState = payment?.['3ds']?.status?.toUpperCase();
       
-      console.log('Complete payment object:', JSON.stringify(payment, null, 2));
-      console.log('Payment state analysis:', {
-        rawState: payment?.state,
-        upperState: paymentState,
-        auth3DS: payment?.['3ds'],
-        authState: authenticationState,
-        errorInfo: {
-          code: payment?.errorCode,
-          message: payment?.message
-        }
-      });
+      // Define success states
+      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
+      const status = successStates.includes(paymentState) ? 'CAPTURED' : 'FAILED';
+      const errorMessage = status === 'FAILED' ? (payment?.message || 'Payment verification failed') : null;
 
-      // First check if payment is explicitly failed
-      if (!paymentState || paymentState === 'FAILED' || paymentState === 'DECLINED' || paymentState === 'CANCELLED') {
-        status = 'FAILED';
-        errorMessage = payment?.message || `Payment ${paymentState?.toLowerCase() || 'failed'}`;
-        console.log('Payment explicitly failed. State:', paymentState, 'Error:', errorMessage);
-      }
-      // Then check 3DS authentication state if present
-      else if (payment?.['3ds'] && authenticationState === 'FAILURE') {
-        status = 'FAILED';
-        errorMessage = payment?.['3ds']?.summaryText || '3D Secure authentication failed';
-        console.log('Payment failed due to 3DS authentication failure');
-      }
-      // Handle successful payments - PURCHASED or CAPTURED are both success states
-      else if (paymentState === 'CAPTURED' || paymentState === 'PURCHASED' || paymentState === 'AUTHORISED' || paymentState === 'AUTHORIZED') {
-        status = 'CAPTURED';
-        console.log('Payment marked as CAPTURED. Original state:', paymentState);
-      }
-      // Any other state is considered pending
-      else {
-        status = 'PENDING';
-        errorMessage = 'Payment is being processed';
-        console.log('Payment marked as PENDING. State:', paymentState);
-      }
-
-      console.log('Final status decision:', {
-        decidedStatus: status,
-        errorMessage,
-        originalState: paymentState,
-        auth3DSState: authenticationState
-      });
-
-      // First update the payment record
+      // Update payment record
       const updatedPayment = await prisma.payment.update({
         where: { merchantOrderId: ref },
         data: {
           status,
           errorMessage,
           gatewayResponse: gatewayStatus,
-          updatedAt: new Date(),
-          paymentMethod: PaymentMethod.CREDIT_CARD
+          updatedAt: new Date()
         }
       });
 
-      console.log('Updated payment record:', {
-        paymentId: updatedPayment.id,
-        status: updatedPayment.status,
-        paymentMethod: updatedPayment.paymentMethod
-      });
-
-      // Then update the order status based on payment status
+      // Update order status
       const orderStatus = status === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
-      const orderUpdateData = {
-        status: orderStatus,
-        paymentStatus: status,
-        statusHistory: {
-          create: {
-            status: orderStatus,
-            notes: status === 'CAPTURED' 
-              ? 'Payment successful' 
-              : `Payment failed: ${errorMessage}`,
-            updatedBy: 'SYSTEM'
-          }
-        }
-      };
-
       const updatedOrder = await prisma.order.update({
         where: { id: updatedPayment.orderId },
-        data: orderUpdateData,
-        include: {
+        data: {
+          status: orderStatus,
+          paymentStatus: status,
           statusHistory: {
-            orderBy: {
-              updatedAt: 'desc'
-            },
-            take: 1
+            create: {
+              status: orderStatus,
+              notes: status === 'CAPTURED' ? 'Payment successful' : `Payment failed: ${errorMessage}`,
+              updatedBy: 'SYSTEM'
+            }
           }
         }
       });
 
-      console.log('Updated order record:', {
-        orderId: updatedOrder.id,
-        status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus,
-        paymentMethod: updatedOrder.paymentMethod,
-        lastStatusHistory: updatedOrder.statusHistory[0]
-      });
-
-      // Send order confirmation email for successful credit card payments
+      // Send confirmation email for successful payments
       if (status === 'CAPTURED') {
-        try {
-          const { OrderEmailService } = await import('./order-email.service');
-          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
-          console.log('Order confirmation email sent after successful payment');
-        } catch (error) {
-          console.error('Error sending order confirmation email after payment:', error);
-        }
+        const { OrderEmailService } = await import('./order-email.service');
+        await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
       }
 
-      // Return the complete updated payment record with order
-      return await prisma.payment.findUnique({
-        where: { id: updatedPayment.id },
-        include: { order: true }
-      });
+      // Return redirect URL based on status
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      const redirectUrl = status === 'CAPTURED'
+        ? `${baseUrl}/checkout/success?orderId=${updatedOrder.id}`
+        : `${baseUrl}/checkout/error?message=${encodeURIComponent(errorMessage || 'Payment verification failed')}&orderId=${updatedOrder.id}&ref=${ref}`;
+
+      return { redirectUrl };
     } catch (error) {
       console.error('Error handling payment callback:', error);
-      throw error;
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      return {
+        redirectUrl: `${baseUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`
+      };
     }
   }
 
