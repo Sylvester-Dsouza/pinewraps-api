@@ -93,34 +93,51 @@ export class PaymentService {
       }
 
       const paymentState = payment.state?.toUpperCase();
-      console.log('Processing payment state:', {
+      const merchantOrderRef = payment.merchantOrderReference;
+      
+      console.log('Processing payment:', {
         state: paymentState,
-        rawResponse: payment
+        orderRef: merchantOrderRef,
+        paymentRef: payment.reference,
+        orderReference: payment.orderReference
+      });
+
+      // Find payment record by merchantOrderReference
+      const paymentRecord = await prisma.payment.findFirst({
+        where: {
+          OR: [
+            { merchantOrderId: merchantOrderRef }, // Order number (e.g., ORD-2412-0038)
+            { paymentOrderId: ref }, // N-Genius order reference
+            { paymentReference: payment.reference } // N-Genius payment reference
+          ]
+        }
+      });
+
+      if (!paymentRecord) {
+        console.error('Payment record not found for:', {
+          merchantOrderRef,
+          orderRef: ref,
+          paymentRef: payment.reference
+        });
+        throw new Error('Payment record not found');
+      }
+
+      console.log('Found payment record:', {
+        id: paymentRecord.id,
+        merchantOrderId: paymentRecord.merchantOrderId,
+        paymentOrderId: paymentRecord.paymentOrderId
       });
 
       // Define success states
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
       const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
 
-      // Find payment record by either merchantOrderId or paymentOrderId
-      const paymentRecord = await prisma.payment.findFirst({
-        where: {
-          OR: [
-            { merchantOrderId: ref },
-            { paymentOrderId: ref }
-          ]
-        }
-      });
-
-      if (!paymentRecord) {
-        throw new Error('Payment record not found');
-      }
-
       // Update payment record
       const updatedPayment = await prisma.payment.update({
         where: { id: paymentRecord.id },
         data: {
           status,
+          paymentReference: payment.reference,
           errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null,
           gatewayResponse: gatewayStatus,
           updatedAt: new Date(),
@@ -287,11 +304,14 @@ export class PaymentService {
 
   async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
     try {
+      const accessToken = await this.getAccessToken();
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+
       // Create payment record in database first
       const payment = await prisma.payment.create({
         data: {
           orderId: order.id,
-          merchantOrderId: order.orderNumber,
+          merchantOrderId: order.orderNumber, // This is what N-Genius will return as merchantOrderReference
           amount: order.total,
           currency: 'AED',
           status: PaymentStatus.PENDING,
@@ -303,12 +323,10 @@ export class PaymentService {
 
       console.log('Created payment record:', {
         paymentId: payment.id,
+        merchantOrderId: payment.merchantOrderId,
         orderId: order.id,
         status: payment.status
       });
-
-      const accessToken = await this.getAccessToken();
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -379,7 +397,7 @@ export class PaymentService {
         await prisma.payment.update({
           where: { id: payment.id },
           data: {
-            paymentOrderId: response.data._id,
+            paymentOrderId: response.data._id.split(':')[2], // Extract the ID from 'urn:order:ID'
             gatewayResponse: response.data
           }
         });
