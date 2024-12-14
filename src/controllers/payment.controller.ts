@@ -70,16 +70,17 @@ export class PaymentController {
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
       const isSuccess = successStates.includes(paymentState);
 
-      if (isSuccess) {
-        // Process successful payment
-        const result = await paymentService.handleCallback(ref);
-        console.log('Payment processed successfully:', result);
+      // Update payment status in database
+      const result = await paymentService.handleCallback(ref);
+      console.log('Payment processed:', result);
 
+      if (isSuccess) {
         // Redirect to success page with order details
         const successUrl = new URL('/checkout/success', frontendUrl);
         successUrl.searchParams.set('ref', ref);
         successUrl.searchParams.set('orderId', result.orderId);
         successUrl.searchParams.set('orderNumber', result.orderNumber);
+        successUrl.searchParams.set('status', 'CAPTURED');
         return res.redirect(successUrl.toString());
       } else {
         // Handle failed payment
@@ -90,7 +91,7 @@ export class PaymentController {
         const errorUrl = new URL('/checkout/error', frontendUrl);
         errorUrl.searchParams.set('ref', ref);
         errorUrl.searchParams.set('message', errorMessage);
-        errorUrl.searchParams.set('status', paymentState || 'FAILED');
+        errorUrl.searchParams.set('status', 'FAILED');
         return res.redirect(errorUrl.toString());
       }
     } catch (error) {

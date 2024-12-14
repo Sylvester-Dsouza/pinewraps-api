@@ -120,24 +120,17 @@ export class PaymentService {
       // Define success states
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
       const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
-      const errorMessage = status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null;
 
       // Update payment record
       const updatedPayment = await prisma.payment.update({
         where: { merchantOrderId: ref },
         data: {
           status,
-          errorMessage,
+          errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null,
           gatewayResponse: gatewayStatus,
           updatedAt: new Date(),
           paymentMethod: PaymentMethod.CREDIT_CARD
         }
-      });
-
-      console.log('Updated payment record:', {
-        id: updatedPayment.id,
-        status,
-        errorMessage
       });
 
       // Update order status
@@ -152,7 +145,7 @@ export class PaymentService {
               status: orderStatus,
               notes: status === PaymentStatus.CAPTURED 
                 ? 'Payment successful' 
-                : `Payment failed: ${errorMessage}`,
+                : `Payment failed: ${payment.message || 'Payment verification failed'}`,
               updatedBy: 'SYSTEM'
             }
           }
@@ -163,12 +156,6 @@ export class PaymentService {
         }
       });
 
-      console.log('Updated order record:', {
-        id: updatedOrder.id,
-        status: orderStatus,
-        paymentStatus: status
-      });
-
       // Send confirmation email for successful payments
       if (status === PaymentStatus.CAPTURED) {
         try {
@@ -177,7 +164,6 @@ export class PaymentService {
           console.log('Order confirmation email sent successfully');
         } catch (emailError) {
           console.error('Failed to send order confirmation email:', emailError);
-          // Don't throw the error, just log it
         }
       }
 
@@ -185,11 +171,10 @@ export class PaymentService {
         status,
         orderId: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
-        errorMessage
+        errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null
       };
     } catch (error) {
       console.error('Error in handleCallback:', error);
-      // Add more detailed error logging
       if (error.response) {
         console.error('Response error:', error.response.data);
       }
