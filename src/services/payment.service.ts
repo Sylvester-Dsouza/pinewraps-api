@@ -158,7 +158,8 @@ export class PaymentService {
           }
         },
         include: {
-          customer: true
+          customer: true,
+          items: true
         }
       });
 
@@ -171,11 +172,12 @@ export class PaymentService {
       // Send confirmation email for successful payments
       if (status === PaymentStatus.CAPTURED) {
         try {
-          const { OrderEmailService } = await import('./order-email.service');
+          const { OrderEmailService } = require('./order-email.service');
           await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
-          console.log('Order confirmation email sent');
+          console.log('Order confirmation email sent successfully');
         } catch (emailError) {
           console.error('Failed to send order confirmation email:', emailError);
+          // Don't throw the error, just log it
         }
       }
 
@@ -187,7 +189,11 @@ export class PaymentService {
       };
     } catch (error) {
       console.error('Error in handleCallback:', error);
-      throw error;
+      // Add more detailed error logging
+      if (error.response) {
+        console.error('Response error:', error.response.data);
+      }
+      throw new Error(error.message || 'Failed to process payment callback');
     }
   }
 
