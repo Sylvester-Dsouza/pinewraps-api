@@ -234,6 +234,114 @@ export class PaymentService {
     }
   }
 
+  async handlePaymentCallback(reference: string): Promise<{ redirectUrl: string }> {
+    try {
+      console.log('Processing payment callback for reference:', reference);
+      const paymentDetails = await this.getPaymentStatus(reference);
+      console.log('N-Genius Payment Details:', {
+        paymentState: paymentDetails.paymentState,
+        authenticationState: paymentDetails.authenticationState,
+        errorCode: paymentDetails.errorCode,
+        errorMessage: paymentDetails.errorMessage
+      });
+
+      // Get the frontend URL from environment variables
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+
+      // Check for successful payment states
+      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED'];
+      const isSuccess = successStates.includes(paymentDetails.paymentState);
+
+      if (isSuccess) {
+        console.log(`Payment marked as ${paymentDetails.paymentState}. Original state: ${paymentDetails.paymentState}`);
+        
+        // Update payment and order status
+        await this.updatePaymentStatus(reference, paymentDetails);
+
+        // Return success URL
+        return {
+          redirectUrl: `${baseUrl}/order/success`
+        };
+      } else {
+        console.log(`Payment failed with state: ${paymentDetails.paymentState}`);
+        const errorMessage = paymentDetails.errorMessage || 'Payment was not successful';
+        
+        // Return error URL with message
+        return {
+          redirectUrl: `${baseUrl}/order/error?message=${encodeURIComponent(errorMessage)}`
+        };
+      }
+    } catch (error) {
+      console.error('Error processing payment callback:', error);
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      return {
+        redirectUrl: `${baseUrl}/order/error?message=${encodeURIComponent('An error occurred while processing your payment')}`
+      };
+    }
+  }
+
+  async updatePaymentStatus(reference: string, paymentDetails: any): Promise<void> {
+    try {
+      // First update the payment record
+      const updatedPayment = await prisma.payment.update({
+        where: { merchantOrderId: reference },
+        data: {
+          status: paymentDetails.paymentState,
+          errorMessage: paymentDetails.errorMessage,
+          gatewayResponse: paymentDetails,
+          updatedAt: new Date(),
+          paymentMethod: PaymentMethod.CREDIT_CARD
+        }
+      });
+
+      console.log('Updated payment record:', {
+        paymentId: updatedPayment.id,
+        status: updatedPayment.status,
+        paymentMethod: updatedPayment.paymentMethod
+      });
+
+      // Then update the order status based on payment status
+      const orderStatus = paymentDetails.paymentState === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
+      const orderUpdateData = {
+        status: orderStatus,
+        paymentStatus: paymentDetails.paymentState,
+        statusHistory: {
+          create: {
+            status: orderStatus,
+            notes: paymentDetails.paymentState === 'CAPTURED' 
+              ? 'Payment successful' 
+              : `Payment failed: ${paymentDetails.errorMessage}`,
+            updatedBy: 'SYSTEM'
+          }
+        }
+      };
+
+      const updatedOrder = await prisma.order.update({
+        where: { id: updatedPayment.orderId },
+        data: orderUpdateData,
+        include: {
+          statusHistory: {
+            orderBy: {
+              updatedAt: 'desc'
+            },
+            take: 1
+          }
+        }
+      });
+
+      console.log('Updated order record:', {
+        orderId: updatedOrder.id,
+        status: updatedOrder.status,
+        paymentStatus: updatedOrder.paymentStatus,
+        paymentMethod: updatedOrder.paymentMethod,
+        lastStatusHistory: updatedOrder.statusHistory[0]
+      });
+    } catch (error) {
+      console.error('Error updating payment status:', error);
+      throw new Error('Failed to update payment status');
+    }
+  }
+
   async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
     try {
       console.log('Creating payment order for:', {
