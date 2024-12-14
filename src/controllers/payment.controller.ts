@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { paymentConfig } from '../config/payment.config';
 
 const prisma = new PrismaClient();
+const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 
 export class PaymentController {
   static async createPayment(req: Request, res: Response) {
@@ -46,13 +47,13 @@ export class PaymentController {
         console.error('Payment callback received without reference');
         console.log('Redirecting to error URL due to missing reference');
         console.log('=== PAYMENT CALLBACK END ===');
-        return res.redirect(`http://4e35-106-201-187-229.ngrok-free.app/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
       // If payment was cancelled by user
       if (cancelled === 'true') {
         console.log('Payment was cancelled by user');
-        const errorUrl = new URL('/checkout/error', 'http://4e35-106-201-187-229.ngrok-free.app');
+        const errorUrl = new URL('/checkout/error', frontendUrl);
         errorUrl.searchParams.set('ref', ref);
         errorUrl.searchParams.set('message', 'Payment was cancelled');
         errorUrl.searchParams.set('status', 'CANCELLED');
@@ -110,7 +111,7 @@ export class PaymentController {
       console.log('Determining redirect URL...');
       // Always redirect to error page for failed or pending payments
       if (updatedPayment?.status !== 'CAPTURED' || updatedPayment?.order?.status !== 'PROCESSING') {
-        const errorUrl = new URL('/checkout/error', 'http://4e35-106-201-187-229.ngrok-free.app');
+        const errorUrl = new URL('/checkout/error', frontendUrl);
         errorUrl.searchParams.set('ref', ref.toString());
         errorUrl.searchParams.set('message', updatedPayment?.errorMessage || 'Payment was not successful');
         errorUrl.searchParams.set('status', updatedPayment?.status || 'UNKNOWN');
@@ -124,7 +125,7 @@ export class PaymentController {
       }
 
       // Only redirect to success page if payment is captured and order is processing
-      const successUrl = new URL('/checkout/success', 'http://4e35-106-201-187-229.ngrok-free.app');
+      const successUrl = new URL('/checkout/success', frontendUrl);
       successUrl.searchParams.set('orderId', updatedPayment.orderId);
       successUrl.searchParams.set('ref', ref.toString());
       
@@ -140,7 +141,7 @@ export class PaymentController {
       const errorMessage = error instanceof Error ? error.message : 'Payment processing failed';
       console.log('Redirecting to error URL due to exception');
       console.log('=== PAYMENT CALLBACK END ===');
-      res.redirect(`http://4e35-106-201-187-229.ngrok-free.app/checkout/error?message=${encodeURIComponent(errorMessage)}`);
+      res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}`);
     }
   }
 

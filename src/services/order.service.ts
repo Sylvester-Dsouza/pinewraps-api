@@ -5,7 +5,7 @@ import WebSocketService from './websocket.service';
 import { calculateRewardPoints, getCustomerTier } from '../utils/rewards';
 
 export class OrderService {
-  private static wsService: WebSocketService;
+  private static wsService: WebSocketService | null = null;
 
   public static initialize(wsService: WebSocketService) {
     OrderService.wsService = wsService;
@@ -212,13 +212,15 @@ export class OrderService {
       paymentMethod,
       items,
       subtotal,
-      total,
       isGift,
       giftMessage,
       notes,
       couponCode,
       pointsRedeemed
     } = orderData;
+
+    // Calculate final total with delivery charge
+    const finalTotal = subtotal + (deliveryMethod === 'DELIVERY' ? 30 : 0);
 
     // Validate required fields
     if (!email || !phone || !deliveryMethod) {
@@ -239,15 +241,15 @@ export class OrderService {
 
     // Calculate points earned from this order
     const currentTier = getCustomerTier(customer.rewardPoints || 0);
-    const pointsEarned = calculateRewardPoints(total, customer.rewardPoints || 0);
+    const pointsEarned = calculateRewardPoints(finalTotal, customer.rewardPoints || 0);
 
-    // Get or create user reward record
-    let userReward = await prisma.userReward.findFirst({
+    // Get or create customer reward record
+    let customerReward = await prisma.customerReward.findFirst({
       where: { customerId: customer.id }
     });
 
-    if (!userReward) {
-      userReward = await prisma.userReward.create({
+    if (!customerReward) {
+      customerReward = await prisma.customerReward.create({
         data: {
           customerId: customer.id,
           points: customer.rewardPoints || 0,
@@ -262,25 +264,20 @@ export class OrderService {
         orderNumber: await OrderService.generateOrderNumber(),
         idempotencyKey,
         status: OrderStatus.PENDING,  // Start with PENDING status
-        paymentStatus: paymentMethod === PaymentMethod.CREDIT_CARD ? PaymentStatus.PENDING : PaymentStatus.CAPTURED,  // Only set as CAPTURED for COD
-        paymentMethod,  // Use the payment method from order data
-        // Customer
+        paymentMethod,
+        paymentStatus: paymentMethod === PaymentMethod.CREDIT_CARD ? PaymentStatus.PENDING : PaymentStatus.CAPTURED,
+        // Customer Information
         customer: {
           connect: {
             id: customer.id
           }
         },
+        customerPhone: phone,
         // Points Information
         pointsEarned: pointsEarned,
         pointsRedeemed: pointsRedeemed || 0,
         pointsValue: (pointsRedeemed || 0) * 0.25, // Each point is worth 0.25 AED
-        // Connect user reward
-        userReward: {
-          connect: {
-            id: userReward.id
-          }
-        },
-        customerPhone: phone,
+        // Delivery Method
         deliveryMethod,
         // Delivery Information
         deliveryDate: deliveryMethod === 'DELIVERY' ? new Date(deliveryDate + 'T00:00:00Z') : null,
@@ -298,22 +295,20 @@ export class OrderService {
         city: deliveryMethod === 'DELIVERY' ? city : 'Dubai', // Set Dubai for pickup orders
         pincode: deliveryMethod === 'DELIVERY' ? pincode : null,
         country: 'United Arab Emirates',
-        // Payment and Totals
-        paymentMethod,
+        // Totals
         subtotal,
-        total: total + (deliveryMethod === 'DELIVERY' ? 30 : 0), // Add delivery charge to total
+        total: finalTotal, // Use the calculated final total
         // Gift Information
         isGift,
         giftMessage,
-        // Notes
-        notes,
+        // Admin Notes
+        adminNotes: notes,
         // Coupon
         coupon: couponId ? {
           connect: {
             id: couponId
           }
         } : undefined,
-        couponCode: orderData.couponCode,
         couponDiscount: discountAmount,
         // Items
         items: {
@@ -337,7 +332,7 @@ export class OrderService {
     await OrderService.createOrderSnapshot(order);
 
     // Send notification about new order
-    OrderService.wsService?.notifyNewOrder(order);
+    this.sendOrderUpdate(order.id, 'NEW', order.customerId);
 
     // Send order confirmation email
     try {
@@ -351,9 +346,14 @@ export class OrderService {
     // Create reward history entry
     await prisma.rewardHistory.create({
       data: {
+        customer: {
+          connect: {
+            id: customer.id
+          }
+        },
         pointsEarned: pointsEarned,
         pointsRedeemed: pointsRedeemed || 0,
-        orderTotal: total,
+        orderTotal: finalTotal,
         action: pointsRedeemed > 0 ? RewardHistoryType.REDEEMED : RewardHistoryType.EARNED,
         description: pointsRedeemed > 0 
           ? `Redeemed ${pointsRedeemed} points for AED ${(pointsRedeemed * 0.25).toFixed(2)}`
@@ -363,20 +363,15 @@ export class OrderService {
             id: order.id
           }
         },
-        reward: {
+        reward: {  
           connect: {
-            id: userReward.id
-          }
-        },
-        customer: {
-          connect: {
-            id: customer.id
+            id: customerReward.id
           }
         }
       }
     });
 
-    // Update customer's total reward points and user reward record
+    // Update customer's total reward points and customer reward record
     await prisma.$transaction([
       prisma.customer.update({
         where: { id: customer.id },
@@ -386,8 +381,8 @@ export class OrderService {
           }
         }
       }),
-      prisma.userReward.update({
-        where: { id: userReward.id },
+      prisma.customerReward.update({
+        where: { id: customerReward.id },
         data: {
           points: {
             increment: pointsEarned - (pointsRedeemed || 0)
@@ -413,8 +408,7 @@ export class OrderService {
           statusHistory: {
             orderBy: {
               updatedAt: 'desc'
-            },
-            take: 1
+            }
           }
         }
       });
@@ -465,9 +459,7 @@ export class OrderService {
       }
 
       // Notify through WebSocket if available
-      if (OrderService.wsService) {
-        OrderService.wsService.notifyOrderStatusUpdate(transformedOrder);
-      }
+      this.sendOrderUpdate(orderId, status, updatedOrder.customerId);
 
       return {
         success: true,
@@ -501,38 +493,59 @@ export class OrderService {
         include: {
           customer: true,
           items: true,
-          delivery: true,
           statusHistory: true
         }
       });
 
       // If order had redeemed points, refund them
       if (order.pointsRedeemed > 0) {
-        await prisma.userReward.update({
-          where: { customerId: order.customerId },
-          data: {
-            points: {
-              increment: order.pointsRedeemed
-            }
-          }
+        // Get the customer's reward record
+        const customerReward = await prisma.customer.findUnique({
+          where: { id: order.customerId },
+          include: { reward: true }
         });
 
-        // Record the refund in reward history
-        await prisma.rewardHistory.create({
-          data: {
-            rewardId: order.customer.reward.id,
-            points: order.pointsRedeemed,
-            type: 'REFUNDED',
-            orderId: order.orderNumber,
-            description: `Refunded ${order.pointsRedeemed} points from cancelled order ${order.orderNumber}`
-          }
-        });
+        if (customerReward?.reward) {
+          // Update the customer's reward points
+          await prisma.customerReward.update({
+            where: { id: customerReward.reward.id },
+            data: {
+              points: {
+                increment: order.pointsRedeemed
+              }
+            }
+          });
+
+          // Record the refund in reward history
+          await prisma.rewardHistory.create({
+            data: {
+              customer: {
+                connect: {
+                  id: order.customerId
+                }
+              },
+              pointsEarned: 0,
+              pointsRedeemed: order.pointsRedeemed,
+              orderTotal: 0,
+              action: RewardHistoryType.EARNED,
+              description: `Refunded ${order.pointsRedeemed} points from cancelled order ${order.orderNumber}`,
+              order: {
+                connect: {
+                  id: order.id
+                }
+              },
+              reward: {
+                connect: {
+                  id: customerReward.reward.id
+                }
+              }
+            }
+          });
+        }
       }
 
       // Notify through WebSocket if available
-      if (OrderService.wsService) {
-        OrderService.wsService.notifyOrderUpdate(order);
-      }
+      this.sendOrderUpdate(orderId, 'CANCELLED', order.customerId);
 
       return order;
     } catch (error) {
@@ -603,10 +616,22 @@ export class OrderService {
     await Promise.all([
       prisma.couponUsage.create({
         data: {
-          couponId: coupon.id,
-          orderId: order.id,
-          customerId: customer.id,
-          discountAmount
+          coupon: {
+            connect: {
+              id: coupon.id
+            }
+          },
+          order: {
+            connect: {
+              id: order.id
+            }
+          },
+          customer: {
+            connect: {
+              id: customer.id
+            }
+          },
+          discount: discountAmount
         }
       }),
       prisma.coupon.update({
@@ -693,36 +718,51 @@ export class OrderService {
     // Start transaction
     return await prisma.$transaction(async (prisma) => {
       // Get user's current rewards
-      const userReward = await prisma.userReward.findUnique({
-        where: { userId },
+      const customerReward = await prisma.customerReward.findUnique({
+        where: { customerId: userId },
         include: { history: true }
       });
 
-      if (!userReward) {
-        throw new Error('User rewards not found');
+      if (!customerReward) {
+        throw new Error('Customer rewards not found');
       }
 
       // Handle points redemption if requested
       let finalTotal = total;
       if (useRewardPoints && pointsToRedeem > 0) {
-        const maxRedeemable = Math.min(userReward.points, pointsToRedeem);
+        const maxRedeemable = Math.min(customerReward.points, pointsToRedeem);
         const rewardsDiscount = Math.min((maxRedeemable * 0.25), total * 0.25);
         finalTotal = Math.max(0, total - rewardsDiscount);
 
         // Create redemption history
         await prisma.rewardHistory.create({
           data: {
-            userId,
-            points: maxRedeemable,
+            customer: {
+              connect: {
+                id: userId
+              }
+            },
+            pointsEarned: 0,
+            pointsRedeemed: maxRedeemable,
+            orderTotal: 0,
             action: RewardHistoryType.REDEEMED,
             description: `Redeemed ${maxRedeemable} points for AED ${rewardsDiscount.toFixed(2)} discount`,
-            orderId: orderData.id
+            order: {
+              connect: {
+                id: orderData.id
+              }
+            },
+            reward: {
+              connect: {
+                id: customerReward.id
+              }
+            }
           }
         });
 
-        // Update user's points
-        await prisma.userReward.update({
-          where: { userId },
+        // Update customer's points
+        await prisma.customerReward.update({
+          where: { customerId: userId },
           data: {
             points: {
               decrement: maxRedeemable
@@ -732,23 +772,38 @@ export class OrderService {
       }
 
       // Calculate points earned from this order
-      const pointsEarned = OrderService.calculatePoints(finalTotal, userReward.tier);
+      const pointsEarned = OrderService.calculatePoints(finalTotal, customerReward.tier);
 
       // Create points earned history
       if (pointsEarned > 0) {
         await prisma.rewardHistory.create({
           data: {
-            userId,
-            points: pointsEarned,
+            customer: {
+              connect: {
+                id: userId
+              }
+            },
+            pointsEarned: pointsEarned,
+            pointsRedeemed: 0,
+            orderTotal: finalTotal,
             action: RewardHistoryType.EARNED,
             description: `Earned ${pointsEarned} points from order #${orderData.id}`,
-            orderId: orderData.id
+            order: {
+              connect: {
+                id: orderData.id
+              }
+            },
+            reward: {
+              connect: {
+                id: customerReward.id
+              }
+            }
           }
         });
 
-        // Update user's points and total points
-        await prisma.userReward.update({
-          where: { userId },
+        // Update customer's points and total points
+        await prisma.customerReward.update({
+          where: { customerId: userId },
           data: {
             points: {
               increment: pointsEarned
@@ -775,6 +830,18 @@ export class OrderService {
     });
   }
 
+  private static sendOrderUpdate(orderId: string, status: string, customerId: string) {
+    try {
+      if (!OrderService.wsService) {
+        console.warn('WebSocket service not initialized');
+        return;
+      }
+      OrderService.wsService.sendOrderUpdate(orderId, status, customerId);
+    } catch (error) {
+      console.error('Error sending order update:', error);
+    }
+  }
+
   private static transformOrder(order: any) {
     const customerName = `${order.customer?.firstName || ''} ${order.customer?.lastName || ''}`.trim();
     
@@ -787,21 +854,27 @@ export class OrderService {
     const transformedOrder = {
       id: order.id,
       orderNumber: order.orderNumber,
+      idempotencyKey: order.idempotencyKey,
       status: order.status,
       date: order.date,
       createdAt: order.createdAt,
       total: order.total,
-      subtotal: subtotal,
+      subtotal: order.subtotal || subtotal,
       pointsEarned: order.pointsEarned,
       pointsRedeemed: order.pointsRedeemed,
+      pointsValue: order.pointsValue,
+      discountAmount: order.discountAmount,
+      adminNotes: order.adminNotes,
       customerName,
-      customerPhone: order.customer?.phone,
+      customerPhone: order.customerPhone || order.customer?.phone,
       deliveryMethod: order.deliveryMethod,
       deliveryDate: order.deliveryDate,
       deliveryTimeSlot: order.deliveryTimeSlot,
+      deliveryCharge: order.deliveryCharge,
       deliveryInstructions: order.deliveryInstructions,
       pickupDate: order.pickupDate,
       pickupTimeSlot: order.pickupTimeSlot,
+      storeLocation: order.storeLocation,
       // Use order address as primary, fallback to snapshot
       streetAddress: order.streetAddress || order.snapshot?.streetAddress || '',
       apartment: order.apartment || order.snapshot?.apartment || '',
@@ -809,8 +882,18 @@ export class OrderService {
       city: order.city || order.snapshot?.city || '',
       pincode: order.pincode || order.snapshot?.pincode || '',
       country: order.country || 'United Arab Emirates',
-      paymentStatus: order.paymentStatus || order.payment?.status || PaymentStatus.PENDING,  // Added payment status
-      paymentMethod: order.paymentMethod || order.payment?.paymentMethod || PaymentMethod.CREDIT_CARD,  // Added payment method
+      // Gift Information
+      isGift: order.isGift,
+      giftMessage: order.giftMessage,
+      // Payment Information
+      payment: {
+        status: order.paymentStatus,
+        method: order.paymentMethod,
+        id: order.paymentId
+      },
+      // Coupon Information
+      couponCode: order.couponCode,
+      couponDiscount: order.couponDiscount,
       items: order.items?.map((item: any) => {
         // Parse variations if they're stored as a string
         let variationsArray = [];

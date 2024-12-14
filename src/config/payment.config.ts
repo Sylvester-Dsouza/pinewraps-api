@@ -1,5 +1,5 @@
-const frontendUrl = 'http://4e35-106-201-187-229.ngrok-free.app';
-const baseUrl = 'http://4e35-106-201-187-229.ngrok-free.app';
+const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+const baseUrl = process.env.API_URL || 'https://api.pinewraps.com';
 
 export const paymentConfig = {
   ngenius: {

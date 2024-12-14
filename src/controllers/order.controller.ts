@@ -15,7 +15,7 @@ import {
   SendEmailSchema 
 } from '../models/order.model';
 import { ApiError } from '../utils/api-error';
-import { DeliveryType } from '@prisma/client';
+import { DeliveryType, UserRole } from '@prisma/client';
 
 export class OrderController {
   public static initialize(wsService: WebSocketService) {
@@ -251,7 +251,8 @@ export class OrderController {
       }
 
       // Check if user has permission to cancel the order
-      if (userRole !== 'admin' && order.userId !== userId) {
+      const isAdmin = userRole === UserRole.ADMIN || userRole === UserRole.SUPER_ADMIN;
+      if (!isAdmin && order.userId !== userId) {
         return res.status(403).json({
           success: false,
           error: {
@@ -262,7 +263,7 @@ export class OrderController {
       }
 
       // Check if order can be cancelled (only PENDING or PENDING_PAYMENT orders can be cancelled by customers)
-      if (userRole !== 'admin' && 
+      if (!isAdmin && 
           order.status !== OrderStatus.PENDING && 
           order.status !== OrderStatus.PENDING_PAYMENT) {
         return res.status(400).json({

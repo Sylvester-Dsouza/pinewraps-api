@@ -214,20 +214,9 @@ export class CustomerController {
             createdAt: "desc"
           },
           include: {
-            reward: {
-              include: {
-                history: true
-              }
-            },
             addresses: true,
             orders: {
               take: 5,
-              orderBy: {
-                createdAt: 'desc'
-              }
-            },
-            rewardHistory: {
-              take: 10,
               orderBy: {
                 createdAt: 'desc'
               }
@@ -251,13 +240,7 @@ export class CustomerController {
         updatedAt: customer.updatedAt,
         addresses: customer.addresses,
         rewardPoints: customer.rewardPoints,
-        reward: customer.reward || {
-          points: customer.rewardPoints,
-          tier: 'BRONZE',
-          history: []
-        },
-        orders: customer.orders,
-        rewardHistory: customer.rewardHistory
+        orders: customer.orders
       }));
 
       return res.json({
@@ -292,20 +275,9 @@ export class CustomerController {
       const customer = await prisma.customer.findUnique({
         where: { id },
         include: {
-          reward: {
-            include: {
-              history: true
-            }
-          },
           addresses: true,
           orders: {
             take: 5,
-            orderBy: {
-              createdAt: 'desc'
-            }
-          },
-          rewardHistory: {
-            take: 10,
             orderBy: {
               createdAt: 'desc'
             }
@@ -337,13 +309,7 @@ export class CustomerController {
         updatedAt: customer.updatedAt,
         addresses: customer.addresses,
         rewardPoints: customer.rewardPoints,
-        reward: customer.reward || {
-          points: customer.rewardPoints,
-          tier: 'BRONZE',
-          history: []
-        },
-        orders: customer.orders,
-        rewardHistory: customer.rewardHistory
+        orders: customer.orders
       };
 
       return res.json({

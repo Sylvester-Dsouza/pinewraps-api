@@ -154,7 +154,7 @@ model Customer {
   addresses       CustomerAddress[]
   orders          Order[]
   couponUsages    CouponUsage[]
-  reward          UserReward?
+  reward          CustomerReward?
   rewardHistory   RewardHistory[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -170,7 +170,6 @@ model CustomerAddress {
   apartment  String?
   emirate    Emirates
   city       String
-  state      String?
   country    String      @default("United Arab Emirates")
   pincode    String?
   isDefault  Boolean     @default(false)
@@ -204,6 +203,7 @@ model Product {
   sku                 String             @unique
   status              ProductStatus      @default(DRAFT)
   basePrice           Float
+  slug                String             @unique @default("")
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
   createdBy           String?
@@ -316,8 +316,8 @@ model Order {
   couponUsages        CouponUsage[]
   rewardHistory       RewardHistory[]
   snapshot            OrderSnapshot?
-  userReward          UserReward?          @relation(fields: [userRewardId], references: [id])
-  userRewardId        String?
+  customerReward      CustomerReward?      @relation(fields: [customerRewardId], references: [id], onDelete: SetNull)
+  customerRewardId    String?
 
   @@map("Order")
 }
@@ -460,36 +460,36 @@ model CouponUsage {
   @@index([customerId])
 }
 
-model UserReward {
+model CustomerReward {
   id          String          @id @default(uuid())
   customerId  String          @unique
-  tier        RewardTier      @default(BRONZE)
-  points      Int             @default(0)
-  totalPoints Int             @default(0)
-  customer    Customer        @relation(fields: [customerId], references: [id])
+  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  points      Int            @default(0)
+  totalPoints Int            @default(0)
+  tier        RewardTier     @default(BRONZE)
   history     RewardHistory[]
-  orders      Order[]
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  orders      Order[]        // This is the back-reference for Order.customerReward
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 }
 
 model RewardHistory {
   id            String           @id @default(uuid())
   customerId    String
-  customer      Customer         @relation(fields: [customerId], references: [id])
-  orderId       String
-  order         Order            @relation(fields: [orderId], references: [id])
+  customer      Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId       String?          // Made optional since rewards might not always be order-related
+  order         Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
   rewardId      String
-  reward        UserReward       @relation(fields: [rewardId], references: [id])
-  pointsEarned  Int
-  pointsRedeemed Int             @default(0)
-  orderTotal    Float
+  reward        CustomerReward   @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  pointsEarned  Int             @default(0)  // Added default
+  pointsRedeemed Int            @default(0)
+  orderTotal    Float?          // Made optional since not all rewards are order-based
   action        RewardHistoryType
   description   String
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
 
   @@index([customerId])
-  @@index([orderId])
   @@index([rewardId])
+  @@index([orderId])
 }

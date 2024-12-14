@@ -90,7 +90,7 @@ export const customerAuth = {
           reward: {
             create: {
               points: 0,
-              totalPoints: 0
+              tier: 'BRONZE'
             }
           }
         },

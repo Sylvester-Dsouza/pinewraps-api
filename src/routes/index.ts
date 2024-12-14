@@ -1,12 +1,11 @@
 import express from 'express';
 import productRoutes from './product.routes';
 import categoryRoutes from './category.routes';
-import userRoutes from './user.routes';
-import authRoutes from './auth.routes';
 import orderRoutes from './order.routes';
 import couponRoutes from './coupon.routes';
 import rewardRoutes from './reward.routes';
 import customerRoutes from './customer.routes';
+import customerAuthRoutes from './customer-auth.routes';
 import adminRoutes from './admin.routes';
 
 const router = express.Router();
@@ -17,13 +16,13 @@ router.get('/health', (req, res) => {
 });
 
 // API routes
-router.use('/auth', authRoutes);
+
 router.use('/products', productRoutes);
 router.use('/categories', categoryRoutes);
-router.use('/users', userRoutes);
 router.use('/orders', orderRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/customers', customerRoutes);
+router.use('/customer-auth', customerAuthRoutes);
 router.use('/rewards', rewardRoutes);
 router.use('/admins', adminRoutes);
 

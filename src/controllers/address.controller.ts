@@ -6,7 +6,7 @@ import { AddressType, Emirates } from '@prisma/client';
 const AddressSchema = z.object({
   street: z.string().min(1, 'Street address is required'),
   apartment: z.string().min(1, 'Apartment is required'),
-  emirate: z.enum(['ABU_DHABI', 'DUBAI', 'SHARJAH', 'AJMAN']),
+  emirate: z.enum(['ABU_DHABI', 'DUBAI', 'SHARJAH', 'AJMAN', 'UMM_AL_QUWAIN', 'RAS_AL_KHAIMAH', 'FUJAIRAH']),
   city: z.string().optional().default('Dubai'),
   country: z.string().optional().default('United Arab Emirates'),
   pincode: z.string().min(1, 'Postal code is required'),

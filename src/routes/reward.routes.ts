@@ -12,7 +12,7 @@ router.get('/:customerId', requireAuth, requireAdmin, RewardController.getCustom
 router.post('/:customerId/add', requireAuth, requireAdmin, RewardController.addPointsToCustomer);
 
 // Customer endpoints
-router.get('/', requireAuth, RewardController.getUserRewards);
+router.get('/', requireAuth, RewardController.getCustomerRewards);
 router.post('/redeem', requireAuth, RewardController.redeemPoints);
 
 export default router;

@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma';
 import { ProductStatus, VariationType } from '@prisma/client';
 import { createProductSchema, updateProductSchema } from '../schemas/product.schema';
 import crypto from 'crypto';
+import { generateSlug, ensureUniqueSlug } from '../utils/helpers';
 
 // Function to generate a unique ID
 const generateId = () => crypto.randomBytes(8).toString('hex');
@@ -18,12 +19,16 @@ export const createProduct = async (
   try {
     console.log('Received product data:', req.body);
 
+    const baseSlug = generateSlug(req.body.name);
+    const slug = await ensureUniqueSlug(baseSlug);
+
     // Process the data without additional parsing
     const productData = {
       id: generateId(),
       name: req.body.name,
       description: req.body.description || '',
       sku: req.body.sku,
+      slug,
       categoryId: req.body.categoryId,
       status: req.body.status || 'DRAFT',
       createdBy: req.user?.uid,
@@ -42,6 +47,7 @@ export const createProduct = async (
             create: variation.options.map((option: any) => ({
               id: generateId(),
               value: option.value,
+              priceAdjustment: Number(option.priceAdjustment || 0),
               stock: Number(option.stock || 0)
             }))
           }
@@ -51,9 +57,13 @@ export const createProduct = async (
 
     // Handle combinations if present
     if (req.body.combinations) {
-      productData.variantCombinations = typeof req.body.combinations === 'string'
-        ? req.body.combinations
-        : JSON.stringify(req.body.combinations);
+      // Only store combinations if we have multiple variations
+      const hasMultipleVariations = Array.isArray(req.body.variations) && req.body.variations.length > 1;
+      productData.variantCombinations = hasMultipleVariations 
+        ? (typeof req.body.combinations === 'string'
+            ? req.body.combinations
+            : JSON.stringify(req.body.combinations))
+        : '[]';
     }
 
     console.log('Processed product data:', productData);
@@ -428,9 +438,13 @@ export const updateProduct = async (
     // Handle combinations/variantCombinations
     let combinationsData = validatedData.combinations || validatedData.variantCombinations;
     if (combinationsData) {
-      combinationsData = typeof combinationsData === 'string'
-        ? combinationsData
-        : JSON.stringify(combinationsData);
+      // Only store combinations if we have multiple variations
+      const hasMultipleVariations = Array.isArray(validatedData.variations) && validatedData.variations.length > 1;
+      combinationsData = hasMultipleVariations
+        ? (typeof combinationsData === 'string'
+            ? combinationsData
+            : JSON.stringify(combinationsData))
+        : '[]';
     }
 
     // Handle variations
@@ -494,22 +508,35 @@ export const updateProduct = async (
         where: { productId: productId }
       });
 
-      // Then create new variations one by one
+      // Create new variations with their options
+      await prisma.productVariation.createMany({
+        data: variations.map(variation => ({
+          id: generateId(),
+          type: variation.type,
+          productId: productId
+        }))
+      });
+
+      // Create options for each variation
       for (const variation of variations) {
-        const newVariation = await prisma.productVariation.create({
-          data: {
-            id: generateId(),
-            type: variation.type,
+        const createdVariation = await prisma.productVariation.findFirst({
+          where: {
             productId: productId,
-            options: {
-              create: variation.options.map((option: any) => ({
-                id: generateId(),
-                value: option.value,
-                stock: Number(option.stock || 0)
-              }))
-            }
+            type: variation.type
           }
         });
+
+        if (createdVariation) {
+          await prisma.productVariationOption.createMany({
+            data: variation.options.map(option => ({
+              id: generateId(),
+              value: option.value,
+              priceAdjustment: Number(option.priceAdjustment || 0),
+              stock: Number(option.stock || 0),
+              variationId: createdVariation.id
+            }))
+          });
+        }
       }
     }
 
@@ -921,7 +948,7 @@ export const getPublicProducts = async (
   }
 };
 
-// Get public product by ID
+// Get public product by ID or slug
 export const getPublicProductById = async (
   req: Request,
   res: Response,
@@ -929,11 +956,14 @@ export const getPublicProductById = async (
 ) => {
   try {
     const { id } = req.params;
-    console.log('Fetching public product by ID:', id);
+    console.log('Fetching public product by ID or slug:', id);
 
     const product = await prisma.product.findFirst({
       where: {
-        id,
+        OR: [
+          { id },
+          { slug: id }
+        ],
         status: 'ACTIVE'
       },
       include: {

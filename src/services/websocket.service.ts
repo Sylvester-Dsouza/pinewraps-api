@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+import WebSocket, { Server as WebSocketServer } from 'ws';
 import { Server } from 'http';
 import { verify } from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
@@ -9,31 +9,41 @@ interface WebSocketClient extends WebSocket {
 }
 
 class WebSocketService {
-  private wss: WebSocket;
+  private wss: WebSocketServer;
   private clients: Map<string, Set<WebSocketClient>>;
 
   constructor(server: Server) {
-    this.wss = new WebSocket({ server });
+    this.wss = new WebSocketServer({ server });
     this.clients = new Map();
 
     this.init();
   }
 
   private init() {
-    this.wss.on('connection', (ws: WebSocketClient, req) => {
+    this.wss.on('connection', async (ws: WebSocketClient, req) => {
       ws.isAlive = true;
 
-      // Handle authentication
-      const token = this.extractToken(req.url);
-      if (!token) {
-        ws.close(1008, 'Authentication required');
-        return;
-      }
-
       try {
-        // Verify token (replace with your token verification logic)
+        // Handle authentication
+        const token = this.extractToken(req.url);
+        if (!token) {
+          ws.close(1008, 'Authentication required');
+          return;
+        }
+
+        // Verify token
         const decoded = verify(token, process.env.JWT_SECRET!);
         ws.userId = decoded.sub as string;
+
+        // Validate user exists
+        const user = await prisma.user.findUnique({
+          where: { id: ws.userId }
+        });
+
+        if (!user) {
+          ws.close(1008, 'User not found');
+          return;
+        }
 
         // Add client to clients map
         if (!this.clients.has(ws.userId)) {
@@ -48,15 +58,13 @@ class WebSocketService {
 
         // Handle client disconnect
         ws.on('close', () => {
-          if (ws.userId) {
-            const userClients = this.clients.get(ws.userId);
-            if (userClients) {
-              userClients.delete(ws);
-              if (userClients.size === 0) {
-                this.clients.delete(ws.userId);
-              }
-            }
-          }
+          this.removeClient(ws);
+        });
+
+        // Handle errors
+        ws.on('error', (error) => {
+          console.error('WebSocket client error:', error);
+          this.removeClient(ws);
         });
 
       } catch (error) {
@@ -65,54 +73,106 @@ class WebSocketService {
       }
     });
 
-    // Ping clients periodically
-    setInterval(() => {
+    // Ping clients periodically and clean up dead connections
+    const interval = setInterval(() => {
       this.wss.clients.forEach((ws: WebSocketClient) => {
         if (!ws.isAlive) {
-          return ws.terminate();
+          this.removeClient(ws);
+          return;
         }
         ws.isAlive = false;
-        ws.ping();
+        ws.ping((error) => {
+          if (error) this.removeClient(ws);
+        });
       });
     }, 30000);
+
+    this.wss.on('close', () => {
+      clearInterval(interval);
+    });
   }
 
-  // Extract token from WebSocket URL
-  private extractToken(url: string = ''): string | null {
-    const match = url.match(/token=([^&]*)/);
-    return match ? match[1] : null;
-  }
-
-  // Send update to specific user
-  public sendToUser(userId: string, event: string, data: any) {
-    const userClients = this.clients.get(userId);
-    if (userClients) {
-      const message = JSON.stringify({ event, data });
-      userClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(message);
+  private removeClient(ws: WebSocketClient) {
+    if (ws.userId) {
+      const userClients = this.clients.get(ws.userId);
+      if (userClients) {
+        userClients.delete(ws);
+        if (userClients.size === 0) {
+          this.clients.delete(ws.userId);
         }
-      });
+      }
+    }
+    try {
+      ws.terminate();
+    } catch (error) {
+      console.error('Error terminating WebSocket connection:', error);
     }
   }
 
-  // Send update to all connected clients
-  public broadcast(event: string, data: any) {
-    const message = JSON.stringify({ event, data });
-    this.wss.clients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
+  private extractToken(url: string = ''): string | null {
+    const match = url?.match(/token=([^&]*)/);
+    return match ? match[1] : null;
   }
 
-  // Send order update
+  public sendToUser(userId: string, event: string, data: any) {
+    try {
+      const userClients = this.clients.get(userId);
+      if (userClients) {
+        const message = JSON.stringify({ event, data });
+        userClients.forEach(client => {
+          try {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(message, (error) => {
+                if (error) {
+                  console.error('Error sending message to client:', error);
+                  this.removeClient(client);
+                }
+              });
+            }
+          } catch (error) {
+            console.error('Error sending to client:', error);
+            this.removeClient(client);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error in sendToUser:', error);
+    }
+  }
+
+  public broadcast(event: string, data: any) {
+    try {
+      const message = JSON.stringify({ event, data });
+      this.wss.clients.forEach((client: WebSocketClient) => {
+        try {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(message, (error) => {
+              if (error) {
+                console.error('Error broadcasting to client:', error);
+                this.removeClient(client);
+              }
+            });
+          }
+        } catch (error) {
+          console.error('Error broadcasting to client:', error);
+          this.removeClient(client);
+        }
+      });
+    } catch (error) {
+      console.error('Error in broadcast:', error);
+    }
+  }
+
   public sendOrderUpdate(orderId: string, status: string, customerId: string) {
-    this.sendToUser(customerId.toString(), 'orderUpdate', {
-      orderId,
-      status,
-      timestamp: new Date().toISOString()
-    });
+    try {
+      this.sendToUser(customerId.toString(), 'orderUpdate', {
+        orderId,
+        status,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error sending order update:', error);
+    }
   }
 }
 

@@ -15,7 +15,7 @@ const DEFAULT_CATEGORIES = [
     isActive: true
   },
   {
-    name: 'Combos',
+    name: 'Sets',
     description: 'Perfect combinations of cakes and flowers',
     isActive: true
   },
