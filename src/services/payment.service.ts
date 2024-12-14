@@ -235,8 +235,8 @@ export class PaymentService {
 
       const accessToken = await this.getAccessToken();
       
-      // Use the ngrok URL for redirects
-      const baseUrl = 'http://4e35-106-201-187-229.ngrok-free.app';
+      // Use the frontend URL from environment variables
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 
       console.log('Payment Configuration:', {
         ...paymentConfig.ngenius,
