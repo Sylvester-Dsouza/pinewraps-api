@@ -114,7 +114,13 @@ export class PaymentController {
         orderId: updatedPayment?.orderId,
         orderNumber: updatedPayment?.order?.orderNumber,
         errorMessage: updatedPayment?.errorMessage,
-        paymentMethod: updatedPayment?.paymentMethod
+        paymentMethod: updatedPayment?.paymentMethod,
+        order: {
+          id: updatedPayment?.orderId,
+          orderNumber: updatedPayment?.order?.orderNumber,
+          status: updatedPayment?.order?.status,
+          total: updatedPayment?.order?.total
+        }
       });
     } catch (error) {
       console.error('=== PAYMENT CALLBACK ERROR ===');
