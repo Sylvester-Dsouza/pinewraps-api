@@ -54,47 +54,34 @@ export class PaymentController {
 
       const paymentService = new PaymentService();
       
-      // Get payment status from N-Genius
-      const gatewayStatus = await paymentService.getPaymentStatus(ref);
-      const payment = gatewayStatus._embedded?.payment?.[0];
-      
-      if (!payment) {
-        console.error('No payment data found in gateway response');
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment verification failed')}&ref=${ref}`);
-      }
-
-      const paymentState = payment.state?.toUpperCase();
-      console.log('Payment State:', { state: paymentState, payment });
-
-      // Define success states
-      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
-      const isSuccess = successStates.includes(paymentState);
-
-      if (isSuccess) {
-        // Process successful payment
+      try {
+        // Get payment status from N-Genius
         const result = await paymentService.handleCallback(ref);
         console.log('Payment processed successfully:', result);
 
-        // Redirect to success page with order details
-        const successUrl = new URL('/checkout/success', frontendUrl);
-        successUrl.searchParams.set('ref', ref);
-        successUrl.searchParams.set('orderId', result.orderId);
-        successUrl.searchParams.set('orderNumber', result.orderNumber);
-        return res.redirect(successUrl.toString());
-      } else {
-        // Handle failed payment
-        const errorMessage = payment.message || 'Payment verification failed';
-        console.log('Payment failed:', { state: paymentState, message: errorMessage });
-
-        // Redirect to error page with details
-        const errorUrl = new URL('/checkout/error', frontendUrl);
-        errorUrl.searchParams.set('ref', ref);
-        errorUrl.searchParams.set('message', errorMessage);
-        errorUrl.searchParams.set('status', paymentState || 'FAILED');
-        return res.redirect(errorUrl.toString());
+        if (result.status === PaymentStatus.CAPTURED) {
+          // Redirect to success page with order details
+          const successUrl = new URL('/checkout/success', frontendUrl);
+          successUrl.searchParams.set('ref', ref);
+          successUrl.searchParams.set('orderId', result.orderId);
+          successUrl.searchParams.set('orderNumber', result.orderNumber);
+          return res.redirect(successUrl.toString());
+        } else {
+          // Handle failed payment
+          const errorUrl = new URL('/checkout/error', frontendUrl);
+          errorUrl.searchParams.set('ref', ref);
+          errorUrl.searchParams.set('message', result.errorMessage || 'Payment verification failed');
+          errorUrl.searchParams.set('status', 'FAILED');
+          return res.redirect(errorUrl.toString());
+        }
+      } catch (error) {
+        console.error('Error processing payment:', error);
+        const errorMessage = error.message || 'An error occurred while processing payment';
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}`);
       }
     } catch (error) {
-      console.error('Error processing payment callback:', error);
+      console.error('Error in payment callback:', error);
+      // Always redirect to error page, never show 500
       return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
     }
   }
