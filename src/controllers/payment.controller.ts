@@ -43,13 +43,13 @@ export class PaymentController {
 
       if (!ref || typeof ref !== 'string') {
         console.error('Payment callback received without reference');
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
+        return res.redirect(`${frontendUrl}/pages/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
       // If payment was cancelled by user
       if (req.query.cancelled === 'true') {
         console.log('Payment was cancelled by user');
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
+        return res.redirect(`${frontendUrl}/pages/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
       }
 
       const paymentService = new PaymentService();
@@ -60,7 +60,7 @@ export class PaymentController {
       
       if (!payment) {
         console.error('No payment data found in gateway response');
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment verification failed')}&ref=${ref}`);
+        return res.redirect(`${frontendUrl}/pages/checkout/error?message=${encodeURIComponent('Payment verification failed')}&ref=${ref}`);
       }
 
       const paymentState = payment.state?.toUpperCase();
@@ -76,7 +76,7 @@ export class PaymentController {
         console.log('Payment processed successfully:', result);
 
         // Redirect to success page with order details
-        const successUrl = new URL('/checkout/success', frontendUrl);
+        const successUrl = new URL('/pages/checkout/success', frontendUrl);
         successUrl.searchParams.set('ref', ref);
         successUrl.searchParams.set('orderId', result.orderId);
         successUrl.searchParams.set('orderNumber', result.orderNumber);
@@ -87,7 +87,7 @@ export class PaymentController {
         console.log('Payment failed:', { state: paymentState, message: errorMessage });
 
         // Redirect to error page with details
-        const errorUrl = new URL('/checkout/error', frontendUrl);
+        const errorUrl = new URL('/pages/checkout/error', frontendUrl);
         errorUrl.searchParams.set('ref', ref);
         errorUrl.searchParams.set('message', errorMessage);
         errorUrl.searchParams.set('status', paymentState || 'FAILED');
@@ -95,7 +95,7 @@ export class PaymentController {
       }
     } catch (error) {
       console.error('Error processing payment callback:', error);
-      return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
+      return res.redirect(`${frontendUrl}/pages/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
     }
   }
 
