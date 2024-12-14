@@ -56,100 +56,78 @@ export class PaymentService {
 
   async getPaymentStatus(ref: string): Promise<any> {
     try {
-      console.log('Getting payment status for ref:', ref);
-      const accessToken = await this.getAccessToken();
+      const token = await this.getAccessToken();
       
       const response = await axios.get(
         `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders/${ref}`,
         {
           headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Accept': 'application/vnd.ni-payment.v2+json'
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/vnd.ni-payment.v2+json'
           }
         }
       );
 
-      console.log('N-Genius payment status response:', {
-        ref,
-        state: response.data._embedded?.payment?.[0]?.state,
-        data: response.data
+      // Log the complete raw response for debugging
+      console.log('N-Genius Raw Response:', JSON.stringify(response.data, null, 2));
+
+      // Extract payment state and 3DS state from embedded payment object
+      const payment = response.data?._embedded?.payment?.[0];
+      const paymentState = payment?.state?.toUpperCase();
+      const authenticationState = payment?.['3ds']?.authenticationStatus?.toUpperCase();
+      
+      // Log detailed payment information
+      console.log('N-Genius Payment Details:', {
+        paymentState,
+        authenticationState,
+        errorCode: payment?.errorCode,
+        errorMessage: payment?.message
       });
 
-      return response.data;
+      return {
+        ...response.data,
+        payment: {
+          ...payment,
+          state: paymentState,
+          authenticationState
+        }
+      };
     } catch (error) {
       console.error('Error getting payment status:', error);
-      throw error;
+      if (error.response) {
+        console.error('N-Genius Error Response:', error.response.data);
+      }
+      throw new Error('Failed to get payment status from gateway');
     }
   }
 
   async handleCallback(ref: string): Promise<any> {
     try {
-      console.log('=== PAYMENT CALLBACK START ===');
-      console.log('Processing payment callback for ref:', ref);
-      
-      // Get payment status from N-Genius
       const gatewayStatus = await this.getPaymentStatus(ref);
       
       // Extract payment state from embedded payment object
       const payment = gatewayStatus._embedded?.payment?.[0];
       if (!payment) {
-        console.error('No payment data found in gateway response');
         throw new Error('No payment data found in gateway response');
       }
 
       const paymentState = payment.state?.toUpperCase();
-      const merchantOrderRef = payment.merchantOrderReference;
-      
-      console.log('Processing payment:', {
+      console.log('Processing payment state:', {
         state: paymentState,
-        orderRef: merchantOrderRef,
-        paymentRef: payment.reference,
-        orderReference: payment.orderReference
+        rawResponse: payment
       });
 
-      // Find payment record by merchantOrderReference
-      const paymentRecord = await prisma.payment.findFirst({
-        where: {
-          OR: [
-            { merchantOrderId: merchantOrderRef }, // Order number (e.g., ORD-2412-0038)
-            { paymentOrderId: ref }, // N-Genius order reference
-            { paymentReference: payment.reference } // N-Genius payment reference
-          ]
-        }
-      });
-
-      if (!paymentRecord) {
-        console.error('Payment record not found for:', {
-          merchantOrderRef,
-          orderRef: ref,
-          paymentRef: payment.reference
-        });
-        throw new Error('Payment record not found');
-      }
-
-      console.log('Found payment record:', {
-        id: paymentRecord.id,
-        merchantOrderId: paymentRecord.merchantOrderId,
-        paymentOrderId: paymentRecord.paymentOrderId
-      });
-
-      // Define success states and map payment status
-      let status;
-      if (['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED', 'SALE'].includes(paymentState)) {
-        status = PaymentStatus.CAPTURED;
-        console.log(`Payment successful: ${paymentState} -> CAPTURED`);
-      } else {
-        status = PaymentStatus.FAILED;
-        console.log(`Payment failed: ${paymentState} -> FAILED`);
-      }
+      // Define success states
+      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
+      const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
+      const errorMessage = status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null;
 
       // Update payment record
       const updatedPayment = await prisma.payment.update({
-        where: { id: paymentRecord.id },
+        where: { merchantOrderId: ref },
         data: {
           status,
-          paymentReference: payment.reference,
-          errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null,
+          errorMessage,
           gatewayResponse: gatewayStatus,
           updatedAt: new Date(),
           paymentMethod: PaymentMethod.CREDIT_CARD
@@ -158,8 +136,8 @@ export class PaymentService {
 
       console.log('Updated payment record:', {
         id: updatedPayment.id,
-        status: updatedPayment.status,
-        reference: updatedPayment.paymentReference
+        status,
+        errorMessage
       });
 
       // Update order status
@@ -174,7 +152,7 @@ export class PaymentService {
               status: orderStatus,
               notes: status === PaymentStatus.CAPTURED 
                 ? 'Payment successful' 
-                : `Payment failed: ${payment.message || 'Payment verification failed'}`,
+                : `Payment failed: ${errorMessage}`,
               updatedBy: 'SYSTEM'
             }
           }
@@ -185,10 +163,10 @@ export class PaymentService {
         }
       });
 
-      console.log('Updated order:', {
+      console.log('Updated order record:', {
         id: updatedOrder.id,
-        status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus
+        status: orderStatus,
+        paymentStatus: status
       });
 
       // Send confirmation email for successful payments
@@ -199,19 +177,19 @@ export class PaymentService {
           console.log('Order confirmation email sent successfully');
         } catch (emailError) {
           console.error('Failed to send order confirmation email:', emailError);
+          // Don't throw the error, just log it
         }
       }
-
-      console.log('=== PAYMENT CALLBACK END ===');
 
       return {
         status,
         orderId: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
-        errorMessage: status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null
+        errorMessage
       };
     } catch (error) {
       console.error('Error in handleCallback:', error);
+      // Add more detailed error logging
       if (error.response) {
         console.error('Response error:', error.response.data);
       }
@@ -224,10 +202,10 @@ export class PaymentService {
       console.log('Processing payment callback for reference:', reference);
       const paymentDetails = await this.getPaymentStatus(reference);
       console.log('N-Genius Payment Details:', {
-        paymentState: paymentDetails._embedded?.payment?.[0]?.state,
-        authenticationState: paymentDetails._embedded?.payment?.[0]?.['3ds']?.authenticationStatus,
-        errorCode: paymentDetails._embedded?.payment?.[0]?.errorCode,
-        errorMessage: paymentDetails._embedded?.payment?.[0]?.message
+        paymentState: paymentDetails.paymentState,
+        authenticationState: paymentDetails.authenticationState,
+        errorCode: paymentDetails.errorCode,
+        errorMessage: paymentDetails.errorMessage
       });
 
       // Get the frontend URL from environment variables
@@ -235,10 +213,10 @@ export class PaymentService {
 
       // Check for successful payment states
       const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED'];
-      const isSuccess = successStates.includes(paymentDetails._embedded?.payment?.[0]?.state);
+      const isSuccess = successStates.includes(paymentDetails.paymentState);
 
       if (isSuccess) {
-        console.log(`Payment marked as ${paymentDetails._embedded?.payment?.[0]?.state}. Original state: ${paymentDetails._embedded?.payment?.[0]?.state}`);
+        console.log(`Payment marked as ${paymentDetails.paymentState}. Original state: ${paymentDetails.paymentState}`);
         
         // Update payment and order status
         await this.updatePaymentStatus(reference, paymentDetails);
@@ -248,8 +226,8 @@ export class PaymentService {
           redirectUrl: `${baseUrl}/order/success`
         };
       } else {
-        console.log(`Payment failed with state: ${paymentDetails._embedded?.payment?.[0]?.state}`);
-        const errorMessage = paymentDetails._embedded?.payment?.[0]?.message || 'Payment was not successful';
+        console.log(`Payment failed with state: ${paymentDetails.paymentState}`);
+        const errorMessage = paymentDetails.errorMessage || 'Payment was not successful';
         
         // Return error URL with message
         return {
@@ -271,8 +249,8 @@ export class PaymentService {
       const updatedPayment = await prisma.payment.update({
         where: { merchantOrderId: reference },
         data: {
-          status: paymentDetails._embedded?.payment?.[0]?.state,
-          errorMessage: paymentDetails._embedded?.payment?.[0]?.message,
+          status: paymentDetails.paymentState,
+          errorMessage: paymentDetails.errorMessage,
           gatewayResponse: paymentDetails,
           updatedAt: new Date(),
           paymentMethod: PaymentMethod.CREDIT_CARD
@@ -286,16 +264,16 @@ export class PaymentService {
       });
 
       // Then update the order status based on payment status
-      const orderStatus = paymentDetails._embedded?.payment?.[0]?.state === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
+      const orderStatus = paymentDetails.paymentState === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
       const orderUpdateData = {
         status: orderStatus,
-        paymentStatus: paymentDetails._embedded?.payment?.[0]?.state,
+        paymentStatus: paymentDetails.paymentState,
         statusHistory: {
           create: {
             status: orderStatus,
-            notes: paymentDetails._embedded?.payment?.[0]?.state === 'CAPTURED' 
+            notes: paymentDetails.paymentState === 'CAPTURED' 
               ? 'Payment successful' 
-              : `Payment failed: ${paymentDetails._embedded?.payment?.[0]?.message}`,
+              : `Payment failed: ${paymentDetails.errorMessage}`,
             updatedBy: 'SYSTEM'
           }
         }
@@ -329,29 +307,18 @@ export class PaymentService {
 
   async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
     try {
-      const accessToken = await this.getAccessToken();
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-
-      // Create payment record in database first
-      const payment = await prisma.payment.create({
-        data: {
-          orderId: order.id,
-          merchantOrderId: order.orderNumber, // This is what N-Genius will return as merchantOrderReference
-          amount: order.total,
-          currency: 'AED',
-          status: PaymentStatus.PENDING,
-          paymentMethod: PaymentMethod.CREDIT_CARD,
-          createdAt: new Date(),
-          updatedAt: new Date()
-        }
-      });
-
-      console.log('Created payment record:', {
-        paymentId: payment.id,
-        merchantOrderId: payment.merchantOrderId,
+      console.log('Creating payment order for:', {
         orderId: order.id,
-        status: payment.status
+        orderNumber: order.orderNumber,
+        total: order.total,
+        customerEmail: order.customer.email,
+        deliveryType: order.deliveryType
       });
+
+      const accessToken = await this.getAccessToken();
+      
+      // Use the frontend URL from environment variables
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -381,6 +348,14 @@ export class PaymentService {
             postcode: storeAddress.postcode
           };
 
+      console.log('N-Genius Configuration:', {
+        apiUrl: this.apiUrl,
+        outletRef: this.outletRef,
+        environment: process.env.NODE_ENV,
+        redirectUrl: `${baseUrl}/api/payments/callback`,
+        cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`
+      });
+
       const payload = {
         action: "SALE",
         amount: {
@@ -389,8 +364,8 @@ export class PaymentService {
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl: `${baseUrl}/checkout/success`,
-          cancelUrl: `${baseUrl}/checkout/error`,
+          redirectUrl: `${baseUrl}/api/payments/callback`,
+          cancelUrl: `${baseUrl}/api/payments/callback?cancelled=true`,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",
@@ -400,10 +375,15 @@ export class PaymentService {
         emailAddress: order.customer.email,
         billingAddress: {
           ...billingAddress,
-          phoneNumber: order.customer.phone || '+971500000000'
+          phoneNumber: order.customer.phone || '+971500000000' // Default UAE phone if not provided
         },
         language: "en"
       };
+
+      console.log('N-Genius Request:', {
+        url: `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
+        payload: JSON.stringify(payload, null, 2)
+      });
 
       const response = await axios.post(
         `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
@@ -417,23 +397,52 @@ export class PaymentService {
         }
       );
 
-      // Update payment record with N-Genius order ID
-      if (response.data?._id) {
-        await prisma.payment.update({
-          where: { id: payment.id },
-          data: {
-            paymentOrderId: response.data._id.split(':')[2], // Extract the ID from 'urn:order:ID'
-            gatewayResponse: response.data
-          }
-        });
+      console.log('N-Genius Response:', {
+        status: response.status,
+        data: JSON.stringify(response.data, null, 2),
+        paymentUrl: response.data._links?.payment?.href
+      });
+
+      if (!response.data?._links?.payment?.href) {
+        console.error('Invalid payment gateway response:', response.data);
+        throw new Error('Invalid response from payment gateway');
       }
 
+      const payment = await prisma.payment.create({
+        data: {
+          orderId: order.id,
+          amount: order.total,
+          currency: "AED",
+          status: PaymentStatus.PENDING,
+          paymentMethod: PaymentMethod.CREDIT_CARD,
+          merchantOrderId: response.data.reference,
+          paymentOrderId: response.data._embedded?.payment?.[0]?.reference,
+          gatewayResponse: response.data
+        }
+      });
+
+      console.log('Created payment record:', {
+        paymentId: payment.id,
+        status: payment.status,
+        merchantOrderId: payment.merchantOrderId,
+        paymentOrderId: payment.paymentOrderId
+      });
+
       return {
-        paymentUrl: response.data._links?.payment?.href
+        paymentUrl: response.data._links.payment.href
       };
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('N-Genius API Error:', {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message,
+          errors: error.response?.data?.errors
+        });
+        throw new Error(`Payment gateway error: ${error.response?.data?.message || error.message}`);
+      }
       console.error('Error creating payment order:', error);
-      throw error;
+      throw new Error('Failed to create payment order: ' + error.message);
     }
   }
 
