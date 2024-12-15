@@ -102,12 +102,13 @@ export class PaymentController {
       }
 
       const paymentService = new PaymentService();
-      const result = await paymentService.processPaymentCallback(ref);
+      const status = await paymentService.getPaymentStatus(ref);
+      const paymentState = status?.payment?.state;
 
-      if (result.success) {
+      if (paymentState === 'CAPTURED' || paymentState === 'AUTHORISED') {
         return res.redirect('pinewraps://payment/success');
       } else {
-        return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent(result.message || 'Payment failed')}`);
+        return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent('Payment was not successful')}`);
       }
     } catch (error) {
       console.error('Error in mobile payment callback:', error);
