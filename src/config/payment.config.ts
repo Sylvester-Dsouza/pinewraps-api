@@ -12,8 +12,8 @@ export const paymentConfig = {
       cancelUrl: `${apiUrl}/api/payments/callback?cancelled=true`,
     },
     mobile: {
-      redirectUrl: `pinewraps://payment/success`,
-      cancelUrl: `pinewraps://payment/cancel`,
+      redirectUrl: `${apiUrl}/api/payments/mobile-callback`,
+      cancelUrl: `${apiUrl}/api/payments/mobile-callback?cancelled=true`,
     },
     environment: process.env.NODE_ENV,
     baseUrl: frontendUrl,

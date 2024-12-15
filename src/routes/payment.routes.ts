@@ -10,6 +10,9 @@ router.post('/create', requireAuth, PaymentController.createPayment);
 // Handle payment callback from N-Genius (no auth required)
 router.get('/callback', PaymentController.handleCallback);
 
+// Handle mobile payment callback (no auth required)
+router.get('/mobile-callback', PaymentController.handleMobileCallback);
+
 // Get payment status (no auth required for callback flow)
 router.get('/status/:ref', PaymentController.getPaymentStatus);
 

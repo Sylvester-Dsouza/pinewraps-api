@@ -85,6 +85,36 @@ export class PaymentController {
     }
   }
 
+  static async handleMobileCallback(req: Request, res: Response) {
+    try {
+      const { ref, cancelled } = req.query;
+
+      console.log('=== MOBILE PAYMENT CALLBACK START ===');
+      console.log('Mobile Callback Query Parameters:', req.query);
+
+      if (!ref || typeof ref !== 'string') {
+        console.error('Mobile payment callback received without reference');
+        return res.redirect('pinewraps://payment/error?message=Payment reference is missing');
+      }
+
+      if (cancelled) {
+        return res.redirect('pinewraps://payment/cancel');
+      }
+
+      const paymentService = new PaymentService();
+      const result = await paymentService.processPaymentCallback(ref);
+
+      if (result.success) {
+        return res.redirect('pinewraps://payment/success');
+      } else {
+        return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent(result.message || 'Payment failed')}`);
+      }
+    } catch (error) {
+      console.error('Error in mobile payment callback:', error);
+      return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
+    }
+  }
+
   static async getPaymentStatus(req: Request, res: Response) {
     try {
       const { ref } = req.params;
