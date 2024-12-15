@@ -9,7 +9,12 @@ const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 export class PaymentController {
   static async createPayment(req: Request, res: Response) {
     try {
-      const { orderId } = req.body;
+      const { orderId, platform = 'web' } = req.body;
+
+      // Validate platform
+      if (platform !== 'web' && platform !== 'mobile') {
+        return res.status(400).json({ message: 'Invalid platform. Must be either "web" or "mobile"' });
+      }
 
       // Get the order from database
       const order = await prisma.order.findUnique({
@@ -25,7 +30,7 @@ export class PaymentController {
 
       // Create payment order with N-Genius
       const paymentService = new PaymentService();
-      const result = await paymentService.createPaymentOrder(order);
+      const result = await paymentService.createPaymentOrder(order, platform);
 
       res.json(result);
     } catch (error) {

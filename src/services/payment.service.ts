@@ -350,20 +350,21 @@ export class PaymentService {
     }
   }
 
-  async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
+  async createPaymentOrder(order: Order & { customer: any }, platform: 'web' | 'mobile' = 'web'): Promise<{ paymentUrl: string }> {
     try {
       console.log('Creating payment order for:', {
         orderId: order.id,
         orderNumber: order.orderNumber,
         total: order.total,
         customerEmail: order.customer.email,
-        deliveryType: order.deliveryType
+        deliveryType: order.deliveryType,
+        platform
       });
 
       const accessToken = await this.getAccessToken();
       
-      // Use the frontend URL from environment variables
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      // Use platform-specific URLs
+      const { redirectUrl, cancelUrl } = paymentConfig.ngenius[platform];
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -397,8 +398,9 @@ export class PaymentService {
         apiUrl: this.apiUrl,
         outletRef: this.outletRef,
         environment: process.env.NODE_ENV,
-        redirectUrl: paymentConfig.ngenius.redirectUrl,
-        cancelUrl: paymentConfig.ngenius.cancelUrl,
+        redirectUrl,
+        cancelUrl,
+        platform
       });
 
       const payload = {
@@ -409,8 +411,8 @@ export class PaymentService {
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl: paymentConfig.ngenius.redirectUrl,
-          cancelUrl: paymentConfig.ngenius.cancelUrl,
+          redirectUrl,
+          cancelUrl,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",

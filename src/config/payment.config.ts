@@ -7,8 +7,14 @@ export const paymentConfig = {
     apiUrl: process.env.NGENIUS_API_URL || 'https://api-gateway.sandbox.ngenius-payments.com',
     outletRef: process.env.NGENIUS_OUTLET_REF,
     merchantId: process.env.NGENIUS_MERCHANT_ID,
-    redirectUrl: `${apiUrl}/api/payments/callback`,
-    cancelUrl: `${apiUrl}/api/payments/callback?cancelled=true`,
+    web: {
+      redirectUrl: `${apiUrl}/api/payments/callback`,
+      cancelUrl: `${apiUrl}/api/payments/callback?cancelled=true`,
+    },
+    mobile: {
+      redirectUrl: `pinewraps://payment/success`,
+      cancelUrl: `pinewraps://payment/cancel`,
+    },
     environment: process.env.NODE_ENV,
     baseUrl: frontendUrl,
     currency: 'AED',
