@@ -370,12 +370,12 @@ export class PaymentService {
           amount: order.total,
           currency: paymentConfig.ngenius.currency,
           status: PaymentStatus.PENDING,
-          platform,
           paymentMethod: PaymentMethod.CREDIT_CARD,
           merchantOrderId: `${order.orderNumber}-${Date.now()}`,
           metadata: {
             platform,
-            orderNumber: order.orderNumber
+            orderNumber: order.orderNumber,
+            customerEmail: order.customer.email
           }
         }
       });
@@ -385,36 +385,8 @@ export class PaymentService {
       const apiUrl = process.env.API_URL || 'http://localhost:3001';
 
       // Create the callback URLs with platform info
-      const returnUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}`;
-      const cancelUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}&cancelled=true`;
-
-      // Default store address for pickup orders
-      const storeAddress = {
-        address1: "Jumeirah 1",
-        city: "Dubai",
-        countryCode: "AE",
-        postcode: "12345"
-      };
-
-      // Determine billing address based on delivery type
-      const billingAddress = order.deliveryType === 'DELIVERY' && order.shippingAddress
-        ? {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: order.shippingAddress.street || 'Not Provided',
-            apartment: order.shippingAddress.apartment,
-            city: order.shippingAddress.city || 'Dubai',
-            countryCode: "AE",
-            postcode: order.shippingAddress.pincode || '12345'
-          }
-        : {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: storeAddress.address1,
-            city: storeAddress.city,
-            countryCode: storeAddress.countryCode,
-            postcode: storeAddress.postcode
-          };
+      const returnUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}&platform=${platform}`;
+      const cancelUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}&platform=${platform}&cancelled=true`;
 
       const payload = {
         action: paymentConfig.ngenius.paymentAction,
@@ -431,8 +403,11 @@ export class PaymentService {
         },
         emailAddress: order.customer.email,
         billingAddress: {
-          ...billingAddress,
-          phoneNumber: order.customer.phone || '+971500000000'
+          firstName: order.customer.firstName || 'Guest',
+          lastName: order.customer.lastName || 'Customer',
+          address1: order.shippingAddress || 'N/A',
+          city: 'Dubai',
+          countryCode: 'AE'
         }
       };
 
@@ -464,9 +439,9 @@ export class PaymentService {
       console.log('Created payment record:', {
         paymentId: payment.id,
         status: payment.status,
-        platform: payment.platform,
         merchantOrderId: payment.merchantOrderId,
-        paymentOrderId: payment.paymentOrderId
+        paymentOrderId: payment.paymentOrderId,
+        metadata: payment.metadata
       });
 
       return {

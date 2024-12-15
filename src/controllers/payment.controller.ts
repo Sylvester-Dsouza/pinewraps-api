@@ -37,7 +37,7 @@ export class PaymentController {
 
   static async handleCallback(req: Request, res: Response) {
     try {
-      const { ref } = req.query;
+      const { ref, platform } = req.query;
 
       console.log('=== PAYMENT CALLBACK START ===');
       console.log('Callback Query Parameters:', req.query);
@@ -53,7 +53,8 @@ export class PaymentController {
         include: { order: true }
       });
 
-      const isApp = payment?.platform === 'app';
+      // Get platform from metadata
+      const isApp = platform === 'app' || payment?.metadata?.platform === 'app';
 
       // If payment was cancelled by user
       if (req.query.cancelled === 'true') {
