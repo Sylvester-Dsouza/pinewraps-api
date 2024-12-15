@@ -9,6 +9,7 @@ const router = express.Router();
 // Admin endpoints
 router.get('/analytics', requireAuth, requireAdmin, RewardController.getRewardsAnalytics);
 router.get('/:customerId', requireAuth, requireAdmin, RewardController.getCustomerRewards);
+router.get('/:customerId/history', requireAuth, requireAdmin, RewardController.getCustomerRewardHistory);
 router.post('/:customerId/add', requireAuth, requireAdmin, RewardController.addPointsToCustomer);
 
 // Customer endpoints

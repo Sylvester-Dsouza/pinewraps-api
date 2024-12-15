@@ -9,7 +9,7 @@ const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 export class PaymentController {
   static async createPayment(req: Request, res: Response) {
     try {
-      const { orderId } = req.body;
+      const { orderId, isApp = false, platform } = req.body;
 
       // Get the order from database
       const order = await prisma.order.findUnique({
@@ -23,9 +23,18 @@ export class PaymentController {
         return res.status(404).json({ message: 'Order not found' });
       }
 
+      // Add app info to customer data
+      const orderWithAppInfo = {
+        ...order,
+        customer: {
+          ...order.customer,
+          isApp: isApp || platform === 'app'
+        }
+      };
+
       // Create payment order with N-Genius
       const paymentService = new PaymentService();
-      const result = await paymentService.createPaymentOrder(order);
+      const result = await paymentService.createPaymentOrder(orderWithAppInfo);
 
       res.json(result);
     } catch (error) {
@@ -36,41 +45,88 @@ export class PaymentController {
 
   static async handleCallback(req: Request, res: Response) {
     try {
-      const { ref } = req.query;
+      const { ref, orderId, isApp, status } = req.query;
 
       console.log('=== PAYMENT CALLBACK START ===');
       console.log('Callback Query Parameters:', req.query);
 
-      if (!ref || typeof ref !== 'string') {
-        console.error('Payment callback received without reference');
+      if (!ref && !orderId) {
+        console.error('Payment callback received without reference or orderId');
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
-      // If payment was cancelled by user
-      if (req.query.cancelled === 'true') {
+      // If payment was cancelled by user or status is cancel
+      if (req.query.cancelled === 'true' || status === 'cancel') {
         console.log('Payment was cancelled by user');
+        if (isApp === 'true') {
+          return res.redirect(`pinewraps://payment/cancel?orderId=${orderId}`);
+        }
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
       }
 
       const paymentService = new PaymentService();
       
       try {
+        // Get payment details to check if it's an app payment
+        const payment = await prisma.payment.findFirst({
+          where: {
+            OR: [
+              { merchantOrderId: ref?.toString() },
+              { paymentOrderId: ref?.toString() },
+              { orderId: orderId?.toString() }
+            ]
+          }
+        });
+
+        if (!payment) {
+          throw new Error('Payment not found');
+        }
+
         // Process payment and get result
-        const result = await paymentService.handleCallback(ref);
+        const result = await paymentService.handleCallback(payment.merchantOrderId);
         console.log('Payment processed successfully:', result);
 
+        // Determine redirect URL based on whether it's an app or web payment
         if (result.status === PaymentStatus.CAPTURED) {
-          // Redirect to success page with order details
-          const successRedirect = `${frontendUrl}/checkout/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`;
-          return res.redirect(successRedirect);
+          if (payment.isApp || isApp === 'true') {
+            // For app payments, redirect to app deep link
+            return res.redirect(`pinewraps://payment/success?orderId=${payment.orderId}`);
+          } else {
+            // For web payments, redirect to web success page
+            return res.redirect(`${frontendUrl}/checkout/success?orderId=${payment.orderId}`);
+          }
         } else {
           // Handle failed payment
-          const errorRedirect = `${frontendUrl}/checkout/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}&status=FAILED`;
-          return res.redirect(errorRedirect);
+          const errorMessage = result.errorMessage || 'Payment verification failed';
+          if (payment.isApp || isApp === 'true') {
+            return res.redirect(`pinewraps://payment/error?orderId=${payment.orderId}&message=${encodeURIComponent(errorMessage)}`);
+          } else {
+            return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}&status=FAILED`);
+          }
         }
       } catch (error) {
         console.error('Error processing payment:', error);
         const errorMessage = error.message || 'An error occurred while processing payment';
+        
+        // Try to get payment details for app check
+        try {
+          const payment = await prisma.payment.findFirst({
+            where: {
+              OR: [
+                { merchantOrderId: ref?.toString() },
+                { paymentOrderId: ref?.toString() },
+                { orderId: orderId?.toString() }
+              ]
+            }
+          });
+
+          if (payment?.isApp || isApp === 'true') {
+            return res.redirect(`pinewraps://payment/error?orderId=${orderId || payment?.orderId}&message=${encodeURIComponent(errorMessage)}`);
+          }
+        } catch (e) {
+          console.error('Error getting payment details:', e);
+        }
+
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}`);
       }
     } catch (error) {

@@ -427,6 +427,50 @@ export const RewardController = {
     }
   },
 
+  // Get customer's reward history (admin only)
+  async getCustomerRewardHistory(req: Request, res: Response) {
+    try {
+      const { customerId } = req.params;
+
+      const customer = await prisma.customer.findUnique({
+        where: { id: customerId }
+      });
+
+      if (!customer) {
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'CUSTOMER_NOT_FOUND',
+            message: 'Customer not found'
+          }
+        });
+      }
+
+      const history = await prisma.rewardHistory.findMany({
+        where: { customerId },
+        orderBy: {
+          createdAt: 'desc'
+        }
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          history
+        }
+      });
+    } catch (error) {
+      console.error('Error getting reward history:', error);
+      return res.status(500).json({
+        success: false,
+        error: {
+          code: 'FETCH_ERROR',
+          message: 'Failed to fetch reward history'
+        }
+      });
+    }
+  },
+
   // Get rewards analytics
   async getRewardsAnalytics(req: Request, res: Response) {
     try {

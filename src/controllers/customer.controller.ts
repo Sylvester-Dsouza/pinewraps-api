@@ -156,24 +156,27 @@ export class CustomerController {
     try {
       const customer = await prisma.customer.findUnique({
         where: { firebaseUid: req.user!.uid },
-        include: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          rewardPoints: true,
           addresses: {
             orderBy: [
               { isDefault: 'desc' },
               { createdAt: 'desc' }
-            ]
-          },
-          reward: {
-            include: {
-              history: true
-            }
-          },
-          orders: {
-            take: 5,
-            orderBy: { createdAt: 'desc' },
-            include: {
-              items: true,
-              delivery: true
+            ],
+            select: {
+              id: true,
+              type: true,
+              street: true,
+              apartment: true,
+              emirate: true,
+              city: true,
+              pincode: true,
+              isDefault: true
             }
           }
         }

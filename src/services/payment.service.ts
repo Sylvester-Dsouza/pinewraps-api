@@ -169,8 +169,53 @@ export class PaymentService {
         paymentStatus: status
       });
 
-      // Send confirmation email for successful payments
+      // Only process reward points if payment is captured
       if (status === PaymentStatus.CAPTURED) {
+        try {
+          // Get customer reward record
+          const customerReward = await prisma.customerReward.findUnique({
+            where: { customerId: updatedOrder.customer.id }
+          });
+
+          if (customerReward) {
+            // Calculate points earned from this order
+            const pointsEarned = calculateRewardPoints(updatedOrder.total, customerReward.points || 0);
+
+            // Update customer's reward points
+            await prisma.customerReward.update({
+              where: { id: customerReward.id },
+              data: {
+                points: { increment: pointsEarned },
+                totalPoints: { increment: pointsEarned }
+              }
+            });
+
+            // Create reward history entry
+            await prisma.rewardHistory.create({
+              data: {
+                customer: { connect: { id: updatedOrder.customer.id } },
+                reward: { connect: { id: customerReward.id } },
+                order: { connect: { id: updatedOrder.id } },
+                pointsEarned,
+                pointsRedeemed: 0,
+                orderTotal: updatedOrder.total,
+                action: RewardHistoryType.EARNED,
+                description: `Earned ${pointsEarned} points from order #${updatedOrder.orderNumber}`
+              }
+            });
+
+            console.log('Reward points processed:', {
+              customerId: updatedOrder.customer.id,
+              pointsEarned,
+              newTotal: customerReward.points + pointsEarned
+            });
+          }
+        } catch (rewardError) {
+          console.error('Error processing reward points:', rewardError);
+          // Don't throw the error, just log it
+        }
+
+        // Send confirmation email
         try {
           const { OrderEmailService } = require('./order-email.service');
           await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
@@ -317,8 +362,13 @@ export class PaymentService {
 
       const accessToken = await this.getAccessToken();
       
-      // Use the frontend URL from environment variables
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      // Detect if request is from mobile app based on user agent or custom header
+      const isApp = order.customer.isApp === true;
+      
+      // Always use web URLs for N-Genius, we'll handle app deep linking in the callback
+      const baseUrl = process.env.API_URL || 'http://192.168.1.2:3001';
+      const redirectUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=success`;
+      const cancelUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=cancel`;
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -352,8 +402,9 @@ export class PaymentService {
         apiUrl: this.apiUrl,
         outletRef: this.outletRef,
         environment: process.env.NODE_ENV,
-        redirectUrl: paymentConfig.ngenius.redirectUrl,
-        cancelUrl: paymentConfig.ngenius.cancelUrl,
+        redirectUrl,
+        cancelUrl,
+        isApp
       });
 
       const payload = {
@@ -364,8 +415,8 @@ export class PaymentService {
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl: paymentConfig.ngenius.redirectUrl,
-          cancelUrl: paymentConfig.ngenius.cancelUrl,
+          redirectUrl,
+          cancelUrl,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",
@@ -417,7 +468,8 @@ export class PaymentService {
           paymentMethod: PaymentMethod.CREDIT_CARD,
           merchantOrderId: response.data.reference,
           paymentOrderId: response.data._embedded?.payment?.[0]?.reference,
-          gatewayResponse: response.data
+          gatewayResponse: response.data,
+          isApp // Store whether this is an app payment
         }
       });
 
@@ -425,7 +477,8 @@ export class PaymentService {
         paymentId: payment.id,
         status: payment.status,
         merchantOrderId: payment.merchantOrderId,
-        paymentOrderId: payment.paymentOrderId
+        paymentOrderId: payment.paymentOrderId,
+        isApp
       });
 
       return {

@@ -239,10 +239,6 @@ export class OrderService {
     // Handle coupon if provided
     const { couponId, discountAmount } = await this.handleCoupon(orderData);
 
-    // Calculate points earned from this order
-    const currentTier = getCustomerTier(customer.rewardPoints || 0);
-    const pointsEarned = calculateRewardPoints(finalTotal, customer.rewardPoints || 0);
-
     // Get or create customer reward record
     let customerReward = await prisma.customerReward.findFirst({
       where: { customerId: customer.id }
@@ -252,8 +248,8 @@ export class OrderService {
       customerReward = await prisma.customerReward.create({
         data: {
           customerId: customer.id,
-          points: customer.rewardPoints || 0,
-          tier: currentTier
+          points: 0,
+          tier: 'BRONZE'
         }
       });
     }
@@ -274,7 +270,7 @@ export class OrderService {
         },
         customerPhone: phone,
         // Points Information
-        pointsEarned: pointsEarned,
+        pointsEarned: 0, // Initialize to 0, will be updated after payment capture
         pointsRedeemed: pointsRedeemed || 0,
         pointsValue: (pointsRedeemed || 0) * 0.25, // Each point is worth 0.25 AED
         // Delivery Method
@@ -351,13 +347,13 @@ export class OrderService {
             id: customer.id
           }
         },
-        pointsEarned: pointsEarned,
+        pointsEarned: 0,
         pointsRedeemed: pointsRedeemed || 0,
         orderTotal: finalTotal,
         action: pointsRedeemed > 0 ? RewardHistoryType.REDEEMED : RewardHistoryType.EARNED,
         description: pointsRedeemed > 0 
           ? `Redeemed ${pointsRedeemed} points for AED ${(pointsRedeemed * 0.25).toFixed(2)}`
-          : `Earned ${pointsEarned} points from order ${order.orderNumber}`,
+          : `Earned 0 points from order ${order.orderNumber}`,
         order: {
           connect: {
             id: order.id
@@ -377,7 +373,7 @@ export class OrderService {
         where: { id: customer.id },
         data: {
           rewardPoints: {
-            increment: pointsEarned - (pointsRedeemed || 0)
+            increment: 0
           }
         }
       }),
@@ -385,12 +381,12 @@ export class OrderService {
         where: { id: customerReward.id },
         data: {
           points: {
-            increment: pointsEarned - (pointsRedeemed || 0)
+            increment: 0
           },
           totalPoints: {
-            increment: pointsEarned
+            increment: 0
           },
-          tier: getCustomerTier(customer.rewardPoints + pointsEarned - (pointsRedeemed || 0))
+          tier: getCustomerTier(customer.rewardPoints + 0)
         }
       })
     ]);
