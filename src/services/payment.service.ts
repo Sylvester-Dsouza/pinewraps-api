@@ -389,7 +389,7 @@ export class PaymentService {
       const cancelUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}&platform=${platform}&cancelled=true`;
 
       const payload = {
-        action: paymentConfig.ngenius.paymentAction,
+        action: "PURCHASE",
         amount: {
           currencyCode: paymentConfig.ngenius.currency,
           value: Math.round(order.total * 100)
@@ -399,16 +399,21 @@ export class PaymentService {
           redirectUrl: returnUrl,
           cancelUrl: cancelUrl,
           skipConfirmationPage: true,
-          skip3DS: false
+          skip3DS: false,
+          paymentOperation: "PURCHASE",
+          paymentType: "CARD",
+          paymentBrand: "ALL"
         },
-        emailAddress: order.customer.email,
         billingAddress: {
           firstName: order.customer.firstName || 'Guest',
           lastName: order.customer.lastName || 'Customer',
           address1: order.shippingAddress || 'N/A',
           city: 'Dubai',
-          countryCode: 'AE'
-        }
+          countryCode: 'AE',
+          phoneNumber: order.customer.phone || '+971500000000'
+        },
+        emailAddress: order.customer.email,
+        language: "en"
       };
 
       console.log('Payment gateway request:', {
@@ -422,10 +427,16 @@ export class PaymentService {
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/vnd.ni-payment.v2+json'
+            'Content-Type': 'application/vnd.ni-payment.v2+json',
+            'Accept': 'application/vnd.ni-payment.v2+json'
           }
         }
       );
+
+      if (!response.data?._links?.payment?.href) {
+        console.error('Invalid payment gateway response:', response.data);
+        throw new Error('Invalid response from payment gateway');
+      }
 
       // Update payment record with gateway order ID
       await prisma.payment.update({
@@ -449,6 +460,13 @@ export class PaymentService {
       };
     } catch (error) {
       console.error('Error creating payment order:', error);
+      if (axios.isAxiosError(error)) {
+        console.error('Payment gateway error:', {
+          status: error.response?.status,
+          data: error.response?.data,
+          message: error.message
+        });
+      }
       throw new Error('Failed to create payment order');
     }
   }
