@@ -51,16 +51,36 @@ export class PaymentController {
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
-      const paymentService = new PaymentService();
-      const result = await paymentService.processPaymentCallback(ref);
+      // If payment was cancelled by user
+      if (req.query.cancelled === 'true') {
+        console.log('Payment was cancelled by user');
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
+      }
 
-      if (result.success) {
-        return res.redirect(`${frontendUrl}/checkout/success`);
-      } else {
-        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(result.message || 'Payment failed')}`);
+      const paymentService = new PaymentService();
+      
+      try {
+        // Process payment and get result
+        const result = await paymentService.handleCallback(ref);
+        console.log('Payment processed successfully:', result);
+
+        if (result.status === PaymentStatus.CAPTURED) {
+          // Redirect to success page with order details
+          const successRedirect = `${frontendUrl}/checkout/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`;
+          return res.redirect(successRedirect);
+        } else {
+          // Handle failed payment
+          const errorRedirect = `${frontendUrl}/checkout/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}&status=FAILED`;
+          return res.redirect(errorRedirect);
+        }
+      } catch (error) {
+        console.error('Error processing payment:', error);
+        const errorMessage = error.message || 'An error occurred while processing payment';
+        return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}`);
       }
     } catch (error) {
       console.error('Error in payment callback:', error);
+      // Always redirect to error page, never show 500
       return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
     }
   }
@@ -77,7 +97,7 @@ export class PaymentController {
         return res.redirect('pinewraps://payment/error?message=Payment reference is missing');
       }
 
-      if (cancelled === 'true') {
+      if (cancelled) {
         return res.redirect('pinewraps://payment/cancel');
       }
 
