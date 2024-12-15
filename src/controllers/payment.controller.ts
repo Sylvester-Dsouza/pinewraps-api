@@ -24,11 +24,7 @@ export class PaymentController {
         where: { id: orderId },
         include: {
           customer: true,
-          items: {
-            include: {
-              product: true
-            }
-          },
+          items: true,
           shippingAddress: true
         }
       });
