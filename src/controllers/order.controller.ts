@@ -226,67 +226,64 @@ export class OrderController {
 
   static async cancelOrder(req: Request, res: Response) {
     try {
-      const orderId = req.params.orderId;
-      const userId = req.user?.id;
-      const userRole = req.user?.role;
+      const { orderId } = req.params;
+      const { userId, userRole } = req.user;
 
-      // Get the order first to check permissions
+      // Get the order
       const order = await prisma.order.findUnique({
         where: { id: orderId },
-        include: {
-          customer: true,
-          items: true
-        }
+        include: { customer: true }
       });
-      
-      // Check if order exists
+
       if (!order) {
-        return res.status(404).json({
-          success: false,
-          error: {
-            code: 'ORDER_NOT_FOUND',
-            message: 'Order not found'
-          }
+        return res.status(404).json({ message: 'Order not found' });
+      }
+
+      // Check if user has permission to cancel this order
+      const isAdmin = userRole === 'ADMIN' || userRole === 'SUPER_ADMIN';
+      const isOwner = order.customer.id === userId;
+
+      if (!isAdmin && !isOwner) {
+        return res.status(403).json({ message: 'You do not have permission to cancel this order' });
+      }
+
+      // Check if order can be cancelled
+      const cancellableStatuses = ['PENDING', 'PENDING_PAYMENT', 'PROCESSING'];
+      if (!cancellableStatuses.includes(order.status)) {
+        return res.status(400).json({ 
+          message: 'Order cannot be cancelled in its current status',
+          status: order.status
         });
       }
 
-      // Check if user has permission to cancel the order
-      const isAdmin = userRole === UserRole.ADMIN || userRole === UserRole.SUPER_ADMIN;
-      if (!isAdmin && order.userId !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: 'PERMISSION_DENIED',
-            message: 'You do not have permission to cancel this order'
+      // Cancel the order
+      const updatedOrder = await prisma.order.update({
+        where: { id: orderId },
+        data: {
+          status: OrderStatus.CANCELLED,
+          statusHistory: {
+            create: {
+              status: OrderStatus.CANCELLED,
+              notes: isAdmin ? 'Cancelled by admin' : 'Cancelled by customer',
+              updatedBy: isAdmin ? 'ADMIN' : 'CUSTOMER'
+            }
           }
-        });
-      }
-
-      // Check if order can be cancelled (only PENDING or PENDING_PAYMENT orders can be cancelled by customers)
-      if (!isAdmin && 
-          order.status !== OrderStatus.PENDING && 
-          order.status !== OrderStatus.PENDING_PAYMENT) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'INVALID_STATUS',
-            message: 'Order cannot be cancelled in its current status'
-          }
-        });
-      }
-
-      const cancelledOrder = await OrderService.cancelOrder(orderId);
-      return res.json({ success: true, data: cancelledOrder });
-    } catch (error) {
-      console.error('Cancel order error:', error);
-      return res.status(500).json({
-        success: false,
-        error: {
-          code: 'CANCEL_ERROR',
-          message: 'Failed to cancel order',
-          details: error instanceof Error ? error.message : 'Unknown error'
         }
       });
+
+      // Send cancellation email
+      try {
+        const { OrderEmailService } = await import('../services/order-email.service');
+        await OrderEmailService.sendOrderCancellation(orderId);
+      } catch (error) {
+        console.error('Error sending cancellation email:', error);
+        // Don't throw error here to prevent order cancellation from failing
+      }
+
+      res.json(updatedOrder);
+    } catch (error) {
+      console.error('Error cancelling order:', error);
+      res.status(500).json({ message: 'Failed to cancel order' });
     }
   }
 
