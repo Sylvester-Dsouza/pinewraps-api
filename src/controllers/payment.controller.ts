@@ -9,37 +9,77 @@ const frontendUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
 export class PaymentController {
   static async createPayment(req: Request, res: Response) {
     try {
-      const { orderId, isApp = false, platform } = req.body;
+      const { orderId } = req.body;
+      const userId = req.user?.id;
 
-      // Get the order from database
+      console.log('Creating payment for order:', {
+        orderId,
+        userId,
+        userAgent: req.headers['user-agent'],
+        platform: req.headers['x-platform'] || 'web'
+      });
+
+      // Get the order with customer details
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
-          customer: true
+          customer: true,
+          items: {
+            include: {
+              product: true
+            }
+          },
+          shippingAddress: true
         }
       });
 
       if (!order) {
-        return res.status(404).json({ message: 'Order not found' });
+        return res.status(404).json({
+          success: false,
+          error: {
+            code: 'ORDER_NOT_FOUND',
+            message: 'Order not found'
+          }
+        });
       }
 
-      // Add app info to customer data
-      const orderWithAppInfo = {
+      // Check if user has permission to create payment for this order
+      if (order.customer.id !== userId) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'PERMISSION_DENIED',
+            message: 'You do not have permission to create payment for this order'
+          }
+        });
+      }
+
+      // Add platform info to customer object
+      const enrichedOrder = {
         ...order,
         customer: {
           ...order.customer,
-          isApp: isApp || platform === 'app'
+          platform: req.headers['x-platform'] || 'web'
         }
       };
 
-      // Create payment order with N-Genius
       const paymentService = new PaymentService();
-      const result = await paymentService.createPaymentOrder(orderWithAppInfo);
+      const result = await paymentService.createPaymentOrder(enrichedOrder);
 
-      res.json(result);
+      res.json({
+        success: true,
+        data: result
+      });
     } catch (error) {
-      console.error('Error in createPayment:', error);
-      res.status(500).json({ message: error.message });
+      console.error('Payment creation error:', error);
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'PAYMENT_CREATION_ERROR',
+          message: error instanceof Error ? error.message : 'Failed to create payment',
+          details: error instanceof Error ? error.stack : undefined
+        }
+      });
     }
   }
 

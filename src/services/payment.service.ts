@@ -362,15 +362,12 @@ export class PaymentService {
 
       const accessToken = await this.getAccessToken();
       
-      // Detect if request is from mobile app based on user agent or custom header
-      const isApp = order.customer.isApp === true;
-      
       // Use appropriate redirect URLs based on platform
       const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-      const redirectUrl = isApp 
+      const redirectUrl = order.customer.platform === 'app' 
         ? `pinewraps://payment/success?orderId=${order.id}`
         : `${baseUrl}/checkout/success?orderId=${order.id}`;
-      const cancelUrl = isApp
+      const cancelUrl = order.customer.platform === 'app'
         ? `pinewraps://payment/cancel?orderId=${order.id}`
         : `${baseUrl}/checkout/cancel?orderId=${order.id}`;
 
@@ -408,7 +405,7 @@ export class PaymentService {
         environment: process.env.NODE_ENV,
         redirectUrl,
         cancelUrl,
-        isApp
+        platform: order.customer.platform
       });
 
       const payload = {
@@ -473,7 +470,7 @@ export class PaymentService {
           merchantOrderId: response.data.reference,
           paymentOrderId: response.data._embedded?.payment?.[0]?.reference,
           gatewayResponse: response.data,
-          isApp // Store whether this is an app payment
+          metadata: { platform: order.customer.platform || 'web' }
         }
       });
 
@@ -482,7 +479,7 @@ export class PaymentService {
         status: payment.status,
         merchantOrderId: payment.merchantOrderId,
         paymentOrderId: payment.paymentOrderId,
-        isApp
+        platform: order.customer.platform || 'web'
       });
 
       return {
