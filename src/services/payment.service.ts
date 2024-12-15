@@ -68,15 +68,10 @@ export class PaymentService {
         }
       );
 
-      // Log the complete raw response for debugging
-      console.log('N-Genius Raw Response:', JSON.stringify(response.data, null, 2));
-
-      // Extract payment state and 3DS state from embedded payment object
       const payment = response.data?._embedded?.payment?.[0];
       const paymentState = payment?.state?.toUpperCase();
       const authenticationState = payment?.['3ds']?.authenticationStatus?.toUpperCase();
       
-      // Log detailed payment information
       console.log('N-Genius Payment Details:', {
         paymentState,
         authenticationState,
@@ -101,303 +96,102 @@ export class PaymentService {
     }
   }
 
-  async handleCallback(ref: string): Promise<any> {
+  async processPaymentCallback(reference: string): Promise<{ success: boolean; message?: string }> {
     try {
-      const gatewayStatus = await this.getPaymentStatus(ref);
+      const paymentDetails = await this.getPaymentStatus(reference);
+      const paymentState = paymentDetails.payment?.state;
       
-      // Extract payment state from embedded payment object
-      const payment = gatewayStatus._embedded?.payment?.[0];
+      console.log('Processing payment callback:', {
+        reference,
+        state: paymentState,
+        details: paymentDetails
+      });
+
+      // Find the payment record
+      const payment = await prisma.payment.findFirst({
+        where: { merchantOrderId: reference },
+        include: { order: true }
+      });
+
       if (!payment) {
-        throw new Error('No payment data found in gateway response');
+        console.error('Payment not found for reference:', reference);
+        return { success: false, message: 'Payment not found' };
       }
 
-      const paymentState = payment.state?.toUpperCase();
-      console.log('Processing payment state:', {
-        state: paymentState,
-        rawResponse: payment
-      });
+      // Update payment status based on N-Genius response
+      let status = PaymentStatus.PENDING;
+      let orderStatus = payment.order.status;
 
-      // Define success states
-      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
-      const status = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
-      const errorMessage = status === PaymentStatus.FAILED ? (payment.message || 'Payment verification failed') : null;
+      if (paymentState === 'CAPTURED' || paymentState === 'PURCHASED') {
+        status = PaymentStatus.PAID;
+        orderStatus = OrderStatus.CONFIRMED;
+      } else if (paymentState === 'FAILED' || paymentState === 'DECLINED') {
+        status = PaymentStatus.FAILED;
+        orderStatus = OrderStatus.PAYMENT_FAILED;
+      } else if (paymentState === 'CANCELLED') {
+        status = PaymentStatus.CANCELLED;
+        orderStatus = OrderStatus.CANCELLED;
+      }
 
       // Update payment record
-      const updatedPayment = await prisma.payment.update({
-        where: { merchantOrderId: ref },
+      await prisma.payment.update({
+        where: { id: payment.id },
         data: {
           status,
-          errorMessage,
-          gatewayResponse: gatewayStatus,
-          updatedAt: new Date(),
-          paymentMethod: PaymentMethod.CREDIT_CARD
+          gatewayResponse: paymentDetails
         }
-      });
-
-      console.log('Updated payment record:', {
-        id: updatedPayment.id,
-        status,
-        errorMessage
       });
 
       // Update order status
-      const orderStatus = status === PaymentStatus.CAPTURED ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
-      const updatedOrder = await prisma.order.update({
-        where: { id: updatedPayment.orderId },
+      await prisma.order.update({
+        where: { id: payment.orderId },
         data: {
           status: orderStatus,
-          paymentStatus: status,
-          statusHistory: {
-            create: {
-              status: orderStatus,
-              notes: status === PaymentStatus.CAPTURED 
-                ? 'Payment successful' 
-                : `Payment failed: ${errorMessage}`,
-              updatedBy: 'SYSTEM'
-            }
-          }
-        },
-        include: {
-          customer: true,
-          items: true
+          paymentStatus: status
         }
       });
 
-      console.log('Updated order record:', {
-        id: updatedOrder.id,
-        status: orderStatus,
-        paymentStatus: status
+      console.log('Payment processed successfully:', {
+        status,
+        orderId: payment.orderId,
+        orderNumber: payment.order.orderNumber,
+        errorMessage: paymentDetails.payment?.message || null
       });
-
-      // Only process reward points if payment is captured
-      if (status === PaymentStatus.CAPTURED) {
-        try {
-          // Get customer reward record
-          const customerReward = await prisma.customerReward.findUnique({
-            where: { customerId: updatedOrder.customer.id }
-          });
-
-          if (customerReward) {
-            // Calculate points earned from this order
-            const pointsEarned = calculateRewardPoints(updatedOrder.total, customerReward.points || 0);
-
-            // Update customer's reward points
-            await prisma.customerReward.update({
-              where: { id: customerReward.id },
-              data: {
-                points: { increment: pointsEarned },
-                totalPoints: { increment: pointsEarned }
-              }
-            });
-
-            // Create reward history entry
-            await prisma.rewardHistory.create({
-              data: {
-                customer: { connect: { id: updatedOrder.customer.id } },
-                reward: { connect: { id: customerReward.id } },
-                order: { connect: { id: updatedOrder.id } },
-                pointsEarned,
-                pointsRedeemed: 0,
-                orderTotal: updatedOrder.total,
-                action: RewardHistoryType.EARNED,
-                description: `Earned ${pointsEarned} points from order #${updatedOrder.orderNumber}`
-              }
-            });
-
-            console.log('Reward points processed:', {
-              customerId: updatedOrder.customer.id,
-              pointsEarned,
-              newTotal: customerReward.points + pointsEarned
-            });
-          }
-        } catch (rewardError) {
-          console.error('Error processing reward points:', rewardError);
-          // Don't throw the error, just log it
-        }
-
-        // Send confirmation email
-        try {
-          const { OrderEmailService } = require('./order-email.service');
-          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
-          console.log('Order confirmation email sent successfully');
-        } catch (emailError) {
-          console.error('Failed to send order confirmation email:', emailError);
-          // Don't throw the error, just log it
-        }
-      }
 
       return {
-        status,
-        orderId: updatedOrder.id,
-        orderNumber: updatedOrder.orderNumber,
-        errorMessage
+        success: status === PaymentStatus.PAID,
+        message: paymentDetails.payment?.message
       };
-    } catch (error) {
-      console.error('Error in handleCallback:', error);
-      // Add more detailed error logging
-      if (error.response) {
-        console.error('Response error:', error.response.data);
-      }
-      throw new Error(error.message || 'Failed to process payment callback');
-    }
-  }
-
-  async handlePaymentCallback(reference: string): Promise<{ redirectUrl: string }> {
-    try {
-      console.log('Processing payment callback for reference:', reference);
-      const paymentDetails = await this.getPaymentStatus(reference);
-      console.log('N-Genius Payment Details:', {
-        paymentState: paymentDetails.paymentState,
-        authenticationState: paymentDetails.authenticationState,
-        errorCode: paymentDetails.errorCode,
-        errorMessage: paymentDetails.errorMessage
-      });
-
-      // Get the frontend URL from environment variables
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-
-      // Check for successful payment states
-      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED'];
-      const isSuccess = successStates.includes(paymentDetails.paymentState);
-
-      if (isSuccess) {
-        console.log(`Payment marked as ${paymentDetails.paymentState}. Original state: ${paymentDetails.paymentState}`);
-        
-        // Update payment and order status
-        await this.updatePaymentStatus(reference, paymentDetails);
-
-        // Return success URL
-        return {
-          redirectUrl: `${baseUrl}/order/success`
-        };
-      } else {
-        console.log(`Payment failed with state: ${paymentDetails.paymentState}`);
-        const errorMessage = paymentDetails.errorMessage || 'Payment was not successful';
-        
-        // Return error URL with message
-        return {
-          redirectUrl: `${baseUrl}/order/error?message=${encodeURIComponent(errorMessage)}`
-        };
-      }
     } catch (error) {
       console.error('Error processing payment callback:', error);
-      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-      return {
-        redirectUrl: `${baseUrl}/order/error?message=${encodeURIComponent('An error occurred while processing your payment')}`
-      };
-    }
-  }
-
-  async updatePaymentStatus(reference: string, paymentDetails: any): Promise<void> {
-    try {
-      // First update the payment record
-      const updatedPayment = await prisma.payment.update({
-        where: { merchantOrderId: reference },
-        data: {
-          status: paymentDetails.paymentState,
-          errorMessage: paymentDetails.errorMessage,
-          gatewayResponse: paymentDetails,
-          updatedAt: new Date(),
-          paymentMethod: PaymentMethod.CREDIT_CARD
-        }
-      });
-
-      console.log('Updated payment record:', {
-        paymentId: updatedPayment.id,
-        status: updatedPayment.status,
-        paymentMethod: updatedPayment.paymentMethod
-      });
-
-      // Then update the order status based on payment status
-      const orderStatus = paymentDetails.paymentState === 'CAPTURED' ? OrderStatus.PROCESSING : OrderStatus.CANCELLED;
-      const orderUpdateData = {
-        status: orderStatus,
-        paymentStatus: paymentDetails.paymentState,
-        statusHistory: {
-          create: {
-            status: orderStatus,
-            notes: paymentDetails.paymentState === 'CAPTURED' 
-              ? 'Payment successful' 
-              : `Payment failed: ${paymentDetails.errorMessage}`,
-            updatedBy: 'SYSTEM'
-          }
-        }
-      };
-
-      const updatedOrder = await prisma.order.update({
-        where: { id: updatedPayment.orderId },
-        data: orderUpdateData,
-        include: {
-          statusHistory: {
-            orderBy: {
-              updatedAt: 'desc'
-            },
-            take: 1
-          }
-        }
-      });
-
-      console.log('Updated order record:', {
-        orderId: updatedOrder.id,
-        status: updatedOrder.status,
-        paymentStatus: updatedOrder.paymentStatus,
-        paymentMethod: updatedOrder.paymentMethod,
-        lastStatusHistory: updatedOrder.statusHistory[0]
-      });
-    } catch (error) {
-      console.error('Error updating payment status:', error);
-      throw new Error('Failed to update payment status');
+      return { success: false, message: 'Error processing payment' };
     }
   }
 
   async createPaymentOrder(order: Order & { customer: any }, platform: 'web' | 'mobile' = 'web'): Promise<{ paymentUrl: string }> {
     try {
-      console.log('Creating payment order for:', {
+      const accessToken = await this.getAccessToken();
+
+      const redirectUrl = platform === 'mobile' 
+        ? paymentConfig.ngenius.mobile.redirectUrl 
+        : paymentConfig.ngenius.web.redirectUrl;
+      
+      const cancelUrl = platform === 'mobile'
+        ? paymentConfig.ngenius.mobile.cancelUrl
+        : paymentConfig.ngenius.web.cancelUrl;
+
+      const billingAddress = {
+        firstName: order.customer.firstName,
+        lastName: order.customer.lastName,
+        address1: order.streetAddress,
+        city: order.city,
+        countryCode: 'AE'
+      };
+
+      console.log('Creating payment order:', {
         orderId: order.id,
         orderNumber: order.orderNumber,
         total: order.total,
-        customerEmail: order.customer.email,
-        deliveryType: order.deliveryType,
-        platform
-      });
-
-      const accessToken = await this.getAccessToken();
-      
-      // Use platform-specific URLs
-      const { redirectUrl, cancelUrl } = paymentConfig.ngenius[platform];
-
-      // Default store address for pickup orders
-      const storeAddress = {
-        address1: "Jumeirah 1",
-        city: "Dubai",
-        countryCode: "AE",
-        postcode: "12345"
-      };
-
-      // Determine billing address based on delivery type
-      const billingAddress = order.deliveryType === 'DELIVERY' && order.shippingAddress
-        ? {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: order.shippingAddress.street || 'Not Provided',
-            apartment: order.shippingAddress.apartment,
-            city: order.shippingAddress.city || 'Dubai',
-            countryCode: "AE",
-            postcode: order.shippingAddress.pincode || '12345'
-          }
-        : {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: storeAddress.address1,
-            city: storeAddress.city,
-            countryCode: storeAddress.countryCode,
-            postcode: storeAddress.postcode
-          };
-
-      console.log('N-Genius Configuration:', {
-        apiUrl: this.apiUrl,
-        outletRef: this.outletRef,
-        environment: process.env.NODE_ENV,
         redirectUrl,
         cancelUrl,
         platform
@@ -422,15 +216,10 @@ export class PaymentService {
         emailAddress: order.customer.email,
         billingAddress: {
           ...billingAddress,
-          phoneNumber: order.customer.phone || '+971500000000' // Default UAE phone if not provided
+          phoneNumber: order.customer.phone || '+971500000000'
         },
         language: "en"
       };
-
-      console.log('N-Genius Request:', {
-        url: `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
-        payload: JSON.stringify(payload, null, 2)
-      });
 
       const response = await axios.post(
         `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
@@ -443,12 +232,6 @@ export class PaymentService {
           }
         }
       );
-
-      console.log('N-Genius Response:', {
-        status: response.status,
-        data: JSON.stringify(response.data, null, 2),
-        paymentUrl: response.data._links?.payment?.href
-      });
 
       if (!response.data?._links?.payment?.href) {
         console.error('Invalid payment gateway response:', response.data);
@@ -490,80 +273,6 @@ export class PaymentService {
       }
       console.error('Error creating payment order:', error);
       throw new Error('Failed to create payment order: ' + error.message);
-    }
-  }
-
-  static async handlePaymentCallback(reference: string): Promise<void> {
-    try {
-      const paymentService = new PaymentService();
-      await paymentService.handleCallback(reference);
-    } catch (error) {
-      console.error('Error handling payment callback:', error);
-      throw new Error('Failed to handle payment callback');
-    }
-  }
-
-  static async refundPayment(
-    paymentId: string,
-    amount?: number,
-    reason?: string
-  ): Promise<void> {
-    try {
-      const payment = await prisma.payment.findUnique({
-        where: { id: paymentId },
-        include: {
-          order: true
-        }
-      });
-
-      if (!payment) {
-        throw new Error('Payment not found');
-      }
-
-      const accessToken = await this.getAccessToken();
-
-      // Create refund request
-      const response = await axios.post(
-        `${paymentConfig.ngenius.apiUrl}/transactions/outlets/${paymentConfig.ngenius.outletRef}/orders/${payment.merchantOrderId}/refund`,
-        {
-          amount: {
-            currencyCode: payment.currency,
-            value: Math.round((amount || payment.amount) * 100)
-          }
-        },
-        {
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/vnd.ni-payment.v2+json'
-          }
-        }
-      );
-
-      // Update payment record
-      await prisma.payment.update({
-        where: { id: payment.id },
-        data: {
-          status: PaymentStatus.REFUNDED,
-          refundAmount: amount || payment.amount,
-          refundReason: reason,
-          gatewayResponse: {
-            ...payment.gatewayResponse,
-            refund: response.data
-          }
-        }
-      });
-
-      // Update order status
-      await prisma.order.update({
-        where: { id: payment.orderId },
-        data: {
-          paymentStatus: PaymentStatus.REFUNDED,
-          status: OrderStatus.REFUNDED
-        }
-      });
-    } catch (error) {
-      console.error('Error refunding payment:', error);
-      throw new Error('Failed to refund payment');
     }
   }
 }
