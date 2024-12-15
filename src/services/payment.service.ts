@@ -350,20 +350,43 @@ export class PaymentService {
     }
   }
 
-  async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
+  async createPaymentOrder(order: Order & { customer: any }, platform: string = 'web'): Promise<{ paymentUrl: string }> {
     try {
       console.log('Creating payment order for:', {
         orderId: order.id,
         orderNumber: order.orderNumber,
         total: order.total,
         customerEmail: order.customer.email,
-        deliveryType: order.deliveryType
+        deliveryType: order.deliveryType,
+        platform
       });
 
       const accessToken = await this.getAccessToken();
       
+      // Create payment record
+      const payment = await prisma.payment.create({
+        data: {
+          orderId: order.id,
+          amount: order.total,
+          currency: paymentConfig.ngenius.currency,
+          status: PaymentStatus.PENDING,
+          platform,
+          paymentMethod: PaymentMethod.CREDIT_CARD,
+          merchantOrderId: `${order.orderNumber}-${Date.now()}`,
+          metadata: {
+            platform,
+            orderNumber: order.orderNumber
+          }
+        }
+      });
+
       // Use the frontend URL from environment variables
       const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      const apiUrl = process.env.API_URL || 'http://localhost:3001';
+
+      // Create the callback URLs with platform info
+      const returnUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}`;
+      const cancelUrl = `${apiUrl}/api/payments/callback?ref=${payment.merchantOrderId}&cancelled=true`;
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -393,39 +416,27 @@ export class PaymentService {
             postcode: storeAddress.postcode
           };
 
-      console.log('N-Genius Configuration:', {
-        apiUrl: this.apiUrl,
-        outletRef: this.outletRef,
-        environment: process.env.NODE_ENV,
-        redirectUrl: paymentConfig.ngenius.redirectUrl,
-        cancelUrl: paymentConfig.ngenius.cancelUrl,
-      });
-
       const payload = {
         action: paymentConfig.ngenius.paymentAction,
         amount: {
           currencyCode: paymentConfig.ngenius.currency,
           value: Math.round(order.total * 100)
         },
-        merchantOrderReference: order.orderNumber,
+        merchantOrderReference: payment.merchantOrderId,
         merchantAttributes: {
-          redirectUrl: paymentConfig.ngenius.redirectUrl,
-          cancelUrl: paymentConfig.ngenius.cancelUrl,
+          redirectUrl: returnUrl,
+          cancelUrl: cancelUrl,
           skipConfirmationPage: true,
-          skip3DS: false,
-          paymentOperation: "PURCHASE",
-          paymentType: "CARD",
-          paymentBrand: "ALL"
+          skip3DS: false
         },
         emailAddress: order.customer.email,
         billingAddress: {
           ...billingAddress,
-          phoneNumber: order.customer.phone || '+971500000000' // Default UAE phone if not provided
-        },
-        language: "en"
+          phoneNumber: order.customer.phone || '+971500000000'
+        }
       };
 
-      console.log('N-Genius Request:', {
+      console.log('Payment gateway request:', {
         url: `${this.apiUrl}/transactions/outlets/${this.outletRef}/orders`,
         payload: JSON.stringify(payload, null, 2)
       });
@@ -436,32 +447,16 @@ export class PaymentService {
         {
           headers: {
             'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/vnd.ni-payment.v2+json',
-            'Accept': 'application/vnd.ni-payment.v2+json'
+            'Content-Type': 'application/vnd.ni-payment.v2+json'
           }
         }
       );
 
-      console.log('N-Genius Response:', {
-        status: response.status,
-        data: JSON.stringify(response.data, null, 2),
-        paymentUrl: response.data._links?.payment?.href
-      });
-
-      if (!response.data?._links?.payment?.href) {
-        console.error('Invalid payment gateway response:', response.data);
-        throw new Error('Invalid response from payment gateway');
-      }
-
-      const payment = await prisma.payment.create({
+      // Update payment record with gateway order ID
+      await prisma.payment.update({
+        where: { id: payment.id },
         data: {
-          orderId: order.id,
-          amount: order.total,
-          currency: paymentConfig.ngenius.currency,
-          status: PaymentStatus.PENDING,
-          paymentMethod: PaymentMethod.CREDIT_CARD,
-          merchantOrderId: response.data.reference,
-          paymentOrderId: response.data._embedded?.payment?.[0]?.reference,
+          paymentOrderId: response.data.reference,
           gatewayResponse: response.data
         }
       });
@@ -469,6 +464,7 @@ export class PaymentService {
       console.log('Created payment record:', {
         paymentId: payment.id,
         status: payment.status,
+        platform: payment.platform,
         merchantOrderId: payment.merchantOrderId,
         paymentOrderId: payment.paymentOrderId
       });
@@ -477,17 +473,8 @@ export class PaymentService {
         paymentUrl: response.data._links.payment.href
       };
     } catch (error) {
-      if (axios.isAxiosError(error)) {
-        console.error('N-Genius API Error:', {
-          status: error.response?.status,
-          data: error.response?.data,
-          message: error.message,
-          errors: error.response?.data?.errors
-        });
-        throw new Error(`Payment gateway error: ${error.response?.data?.message || error.message}`);
-      }
       console.error('Error creating payment order:', error);
-      throw new Error('Failed to create payment order: ' + error.message);
+      throw new Error('Failed to create payment order');
     }
   }
 

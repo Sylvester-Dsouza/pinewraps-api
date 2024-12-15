@@ -400,6 +400,7 @@ model Payment {
   amount           Float
   currency         String        @default("AED")
   status           PaymentStatus @default(FAILED)
+  platform         String?       @default("web")
   paymentMethod    PaymentMethod
   merchantOrderId  String?       @unique // Network International order reference
   paymentOrderId   String?       @unique // Network International payment order ID
