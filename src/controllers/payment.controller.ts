@@ -24,8 +24,7 @@ export class PaymentController {
         where: { id: orderId },
         include: {
           customer: true,
-          items: true,
-          shippingAddress: true
+          items: true
         }
       });
 
@@ -40,7 +39,7 @@ export class PaymentController {
       }
 
       // Check if user has permission to create payment for this order
-      if (order.customer.id !== userId) {
+      if (order.customer?.id !== userId) {
         return res.status(403).json({
           success: false,
           error: {
