@@ -366,9 +366,8 @@ export class PaymentService {
       const isApp = order.customer.isApp === true;
       
       // Always use web URLs for N-Genius, we'll handle app deep linking in the callback
-      const baseUrl = process.env.API_URL || 'http://192.168.1.2:3001';
-      const redirectUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=success`;
-      const cancelUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=cancel`;
+      const redirectUrl = `https://pinewraps-api.onrender.com/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=success`;
+      const cancelUrl = `https://pinewraps-api.onrender.com/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=cancel`;
 
       // Default store address for pickup orders
       const storeAddress = {
