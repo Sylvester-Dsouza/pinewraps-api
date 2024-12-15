@@ -409,7 +409,6 @@ model Payment {
   refundAmount     Float?
   refundReason     String?
   metadata         Json? // Additional payment metadata
-  isApp            Boolean       @default(false) // Flag to indicate if payment is from mobile app
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 

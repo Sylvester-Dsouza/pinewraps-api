@@ -10,71 +10,27 @@ export class PaymentController {
   static async createPayment(req: Request, res: Response) {
     try {
       const { orderId } = req.body;
-      const userId = req.user?.id;
 
-      console.log('Creating payment for order:', {
-        orderId,
-        userId,
-        userAgent: req.headers['user-agent'],
-        platform: req.headers['x-platform'] || 'web'
-      });
-
-      // Get the order with customer details
+      // Get the order from database
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
-          customer: true,
-          items: true
+          customer: true
         }
       });
 
       if (!order) {
-        return res.status(404).json({
-          success: false,
-          error: {
-            code: 'ORDER_NOT_FOUND',
-            message: 'Order not found'
-          }
-        });
+        return res.status(404).json({ message: 'Order not found' });
       }
 
-      // Check if user has permission to create payment for this order
-      if (order.customer?.id !== userId) {
-        return res.status(403).json({
-          success: false,
-          error: {
-            code: 'PERMISSION_DENIED',
-            message: 'You do not have permission to create payment for this order'
-          }
-        });
-      }
-
-      // Add platform info to customer object
-      const enrichedOrder = {
-        ...order,
-        customer: {
-          ...order.customer,
-          platform: req.headers['x-platform'] || 'web'
-        }
-      };
-
+      // Create payment order with N-Genius
       const paymentService = new PaymentService();
-      const result = await paymentService.createPaymentOrder(enrichedOrder);
+      const result = await paymentService.createPaymentOrder(order);
 
-      res.json({
-        success: true,
-        data: result
-      });
+      res.json(result);
     } catch (error) {
-      console.error('Payment creation error:', error);
-      res.status(500).json({
-        success: false,
-        error: {
-          code: 'PAYMENT_CREATION_ERROR',
-          message: error instanceof Error ? error.message : 'Failed to create payment',
-          details: error instanceof Error ? error.stack : undefined
-        }
-      });
+      console.error('Error in createPayment:', error);
+      res.status(500).json({ message: error.message });
     }
   }
 
@@ -99,64 +55,22 @@ export class PaymentController {
       const paymentService = new PaymentService();
       
       try {
-        // Get payment details to check if it's an app payment
-        const payment = await prisma.payment.findFirst({
-          where: {
-            OR: [
-              { merchantOrderId: ref },
-              { paymentOrderId: ref }
-            ]
-          }
-        });
-
-        if (!payment) {
-          throw new Error('Payment not found');
-        }
-
         // Process payment and get result
         const result = await paymentService.handleCallback(ref);
         console.log('Payment processed successfully:', result);
 
-        // Determine redirect URL based on whether it's an app or web payment
         if (result.status === PaymentStatus.CAPTURED) {
-          if (payment.isApp) {
-            // For app payments, redirect to app deep link
-            return res.redirect(`pinewraps://payment/success?orderId=${payment.orderId}`);
-          } else {
-            // For web payments, redirect to web success page
-            return res.redirect(`${frontendUrl}/checkout/success?orderId=${payment.orderId}`);
-          }
+          // Redirect to success page with order details
+          const successRedirect = `${frontendUrl}/checkout/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`;
+          return res.redirect(successRedirect);
         } else {
           // Handle failed payment
-          const errorMessage = result.errorMessage || 'Payment verification failed';
-          if (payment.isApp) {
-            return res.redirect(`pinewraps://payment/error?orderId=${payment.orderId}&message=${encodeURIComponent(errorMessage)}`);
-          } else {
-            return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}&status=FAILED`);
-          }
+          const errorRedirect = `${frontendUrl}/checkout/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}&status=FAILED`;
+          return res.redirect(errorRedirect);
         }
       } catch (error) {
         console.error('Error processing payment:', error);
         const errorMessage = error.message || 'An error occurred while processing payment';
-        
-        // Try to get payment details for app check
-        try {
-          const payment = await prisma.payment.findFirst({
-            where: {
-              OR: [
-                { merchantOrderId: ref },
-                { paymentOrderId: ref }
-              ]
-            }
-          });
-
-          if (payment?.isApp) {
-            return res.redirect(`pinewraps://payment/error?orderId=${payment.orderId}&message=${encodeURIComponent(errorMessage)}`);
-          }
-        } catch (e) {
-          console.error('Error getting payment details:', e);
-        }
-
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}`);
       }
     } catch (error) {

@@ -362,14 +362,8 @@ export class PaymentService {
 
       const accessToken = await this.getAccessToken();
       
-      // Use appropriate redirect URLs based on platform
+      // Use the frontend URL from environment variables
       const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
-      const redirectUrl = order.customer.platform === 'app' 
-        ? `pinewraps://payment/success?orderId=${order.id}`
-        : `${baseUrl}/checkout/success?orderId=${order.id}`;
-      const cancelUrl = order.customer.platform === 'app'
-        ? `pinewraps://payment/cancel?orderId=${order.id}`
-        : `${baseUrl}/checkout/cancel?orderId=${order.id}`;
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -403,9 +397,8 @@ export class PaymentService {
         apiUrl: this.apiUrl,
         outletRef: this.outletRef,
         environment: process.env.NODE_ENV,
-        redirectUrl,
-        cancelUrl,
-        platform: order.customer.platform
+        redirectUrl: paymentConfig.ngenius.redirectUrl,
+        cancelUrl: paymentConfig.ngenius.cancelUrl,
       });
 
       const payload = {
@@ -416,8 +409,8 @@ export class PaymentService {
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
-          redirectUrl,
-          cancelUrl,
+          redirectUrl: paymentConfig.ngenius.redirectUrl,
+          cancelUrl: paymentConfig.ngenius.cancelUrl,
           skipConfirmationPage: true,
           skip3DS: false,
           paymentOperation: "PURCHASE",
@@ -469,8 +462,7 @@ export class PaymentService {
           paymentMethod: PaymentMethod.CREDIT_CARD,
           merchantOrderId: response.data.reference,
           paymentOrderId: response.data._embedded?.payment?.[0]?.reference,
-          gatewayResponse: response.data,
-          metadata: { platform: order.customer.platform || 'web' }
+          gatewayResponse: response.data
         }
       });
 
@@ -478,8 +470,7 @@ export class PaymentService {
         paymentId: payment.id,
         status: payment.status,
         merchantOrderId: payment.merchantOrderId,
-        paymentOrderId: payment.paymentOrderId,
-        platform: order.customer.platform || 'web'
+        paymentOrderId: payment.paymentOrderId
       });
 
       return {

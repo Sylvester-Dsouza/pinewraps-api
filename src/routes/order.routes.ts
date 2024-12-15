@@ -13,9 +13,9 @@ router.get('/:orderId/snapshot', requireAuth, OrderController.getOrderSnapshot);
 
 // Customer routes (requires authentication)
 router.post('/', requireAuth, OrderController.createOrder);
-router.delete('/:orderId', requireAuth, OrderController.cancelOrder); // Allow customers to cancel their own orders
 
 // Admin-only routes
+router.delete('/:orderId', requireAuth, requireAdmin, OrderController.cancelOrder);
 router.put('/:orderId/status', requireAuth, requireAdmin, OrderController.updateOrderStatus);
 
 export default router;
