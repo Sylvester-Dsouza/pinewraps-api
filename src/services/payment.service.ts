@@ -365,10 +365,14 @@ export class PaymentService {
       // Detect if request is from mobile app based on user agent or custom header
       const isApp = order.customer.isApp === true;
       
-      // Always use web URLs for N-Genius, we'll handle app deep linking in the callback
-      const baseUrl = process.env.API_URL || 'http://192.168.1.2:3001';
-      const redirectUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=success`;
-      const cancelUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=cancel`;
+      // Use appropriate redirect URLs based on platform
+      const baseUrl = process.env.FRONTEND_URL || 'https://pinewraps.com';
+      const redirectUrl = isApp 
+        ? `pinewraps://payment/success?orderId=${order.id}`
+        : `${baseUrl}/checkout/success?orderId=${order.id}`;
+      const cancelUrl = isApp
+        ? `pinewraps://payment/cancel?orderId=${order.id}`
+        : `${baseUrl}/checkout/cancel?orderId=${order.id}`;
 
       // Default store address for pickup orders
       const storeAddress = {

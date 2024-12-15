@@ -45,22 +45,19 @@ export class PaymentController {
 
   static async handleCallback(req: Request, res: Response) {
     try {
-      const { ref, orderId, isApp, status } = req.query;
+      const { ref } = req.query;
 
       console.log('=== PAYMENT CALLBACK START ===');
       console.log('Callback Query Parameters:', req.query);
 
-      if (!ref && !orderId) {
-        console.error('Payment callback received without reference or orderId');
+      if (!ref || typeof ref !== 'string') {
+        console.error('Payment callback received without reference');
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment reference is missing')}`);
       }
 
-      // If payment was cancelled by user or status is cancel
-      if (req.query.cancelled === 'true' || status === 'cancel') {
+      // If payment was cancelled by user
+      if (req.query.cancelled === 'true') {
         console.log('Payment was cancelled by user');
-        if (isApp === 'true') {
-          return res.redirect(`pinewraps://payment/cancel?orderId=${orderId}`);
-        }
         return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent('Payment was cancelled')}&ref=${ref}&status=CANCELLED`);
       }
 
@@ -71,9 +68,8 @@ export class PaymentController {
         const payment = await prisma.payment.findFirst({
           where: {
             OR: [
-              { merchantOrderId: ref?.toString() },
-              { paymentOrderId: ref?.toString() },
-              { orderId: orderId?.toString() }
+              { merchantOrderId: ref },
+              { paymentOrderId: ref }
             ]
           }
         });
@@ -83,12 +79,12 @@ export class PaymentController {
         }
 
         // Process payment and get result
-        const result = await paymentService.handleCallback(payment.merchantOrderId);
+        const result = await paymentService.handleCallback(ref);
         console.log('Payment processed successfully:', result);
 
         // Determine redirect URL based on whether it's an app or web payment
         if (result.status === PaymentStatus.CAPTURED) {
-          if (payment.isApp || isApp === 'true') {
+          if (payment.isApp) {
             // For app payments, redirect to app deep link
             return res.redirect(`pinewraps://payment/success?orderId=${payment.orderId}`);
           } else {
@@ -98,7 +94,7 @@ export class PaymentController {
         } else {
           // Handle failed payment
           const errorMessage = result.errorMessage || 'Payment verification failed';
-          if (payment.isApp || isApp === 'true') {
+          if (payment.isApp) {
             return res.redirect(`pinewraps://payment/error?orderId=${payment.orderId}&message=${encodeURIComponent(errorMessage)}`);
           } else {
             return res.redirect(`${frontendUrl}/checkout/error?message=${encodeURIComponent(errorMessage)}&ref=${ref}&status=FAILED`);
@@ -113,15 +109,14 @@ export class PaymentController {
           const payment = await prisma.payment.findFirst({
             where: {
               OR: [
-                { merchantOrderId: ref?.toString() },
-                { paymentOrderId: ref?.toString() },
-                { orderId: orderId?.toString() }
+                { merchantOrderId: ref },
+                { paymentOrderId: ref }
               ]
             }
           });
 
-          if (payment?.isApp || isApp === 'true') {
-            return res.redirect(`pinewraps://payment/error?orderId=${orderId || payment?.orderId}&message=${encodeURIComponent(errorMessage)}`);
+          if (payment?.isApp) {
+            return res.redirect(`pinewraps://payment/error?orderId=${payment.orderId}&message=${encodeURIComponent(errorMessage)}`);
           }
         } catch (e) {
           console.error('Error getting payment details:', e);
