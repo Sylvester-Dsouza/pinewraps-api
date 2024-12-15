@@ -350,15 +350,6 @@ export class PaymentService {
     }
   }
 
-  private getCallbackUrl(orderId: string, isApp: boolean = false): string {
-    // Use environment variable for API URL
-    const apiUrl = process.env.API_URL || 'http://192.168.1.2:3001';
-    const baseCallbackUrl = `${apiUrl}/api/payments/callback`;
-    
-    // Construct callback URL with all necessary parameters
-    return `${baseCallbackUrl}?orderId=${orderId}&isApp=${isApp}`;
-  }
-
   async createPaymentOrder(order: Order & { customer: any }): Promise<{ paymentUrl: string }> {
     try {
       console.log('Creating payment order for:', {
@@ -375,8 +366,9 @@ export class PaymentService {
       const isApp = order.customer.isApp === true;
       
       // Always use web URLs for N-Genius, we'll handle app deep linking in the callback
-      const redirectUrl = this.getCallbackUrl(order.id, isApp);
-      const cancelUrl = this.getCallbackUrl(order.id, isApp);
+      const baseUrl = process.env.API_URL || 'http://192.168.1.2:3001';
+      const redirectUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=success`;
+      const cancelUrl = `${baseUrl}/api/payments/callback?orderId=${order.id}&isApp=${isApp}&status=cancel`;
 
       // Default store address for pickup orders
       const storeAddress = {
