@@ -16,6 +16,9 @@ router.get('/mobile-callback', PaymentController.handleMobileCallback);
 // Get payment status (no auth required for callback flow)
 router.get('/status/:ref', PaymentController.getPaymentStatus);
 
+// Get mobile payment status (no auth required for callback flow)
+router.get('/mobile/status/:ref', PaymentController.getMobilePaymentStatus);
+
 // Refund a payment (admin only)
 router.post('/refund', requireAuth, PaymentController.refundPayment);
 

@@ -174,6 +174,53 @@ export class PaymentController {
     }
   }
 
+  static async getMobilePaymentStatus(req: Request, res: Response) {
+    try {
+      const { ref } = req.params;
+
+      if (!ref) {
+        return res.status(400).json({ success: false, error: 'Payment reference is required' });
+      }
+
+      // Get payment details from database
+      const payment = await prisma.payment.findFirst({
+        where: {
+          OR: [
+            { merchantOrderId: ref },
+            { paymentOrderId: ref }
+          ]
+        },
+        include: {
+          order: true
+        }
+      });
+
+      if (!payment) {
+        return res.status(404).json({ success: false, error: 'Payment not found' });
+      }
+
+      // Format response specifically for mobile
+      return res.json({
+        success: true,
+        data: {
+          status: payment.status,
+          orderId: payment.order?.id,
+          orderNumber: payment.order?.orderNumber,
+          amount: payment.amount,
+          currency: payment.currency,
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt
+        }
+      });
+    } catch (error) {
+      console.error('Error getting mobile payment status:', error);
+      return res.status(500).json({ 
+        success: false, 
+        error: 'Failed to get payment status'
+      });
+    }
+  }
+
   static async refundPayment(req: Request, res: Response) {
     try {
       const { paymentId, amount, reason } = req.body;
