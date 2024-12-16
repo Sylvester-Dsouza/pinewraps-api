@@ -37,7 +37,8 @@ export class OrderController {
 
       // Add customer filter for non-admin users
       if (req.user?.role === 'CUSTOMER') {
-        where.customerId = req.user.customerId;
+        where.customerId = req.user.id;
+        console.log('Filtering orders for customer:', req.user.id);
       }
 
       const skip = (Number(page) - 1) * Number(limit);
