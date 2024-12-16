@@ -94,35 +94,51 @@ export class PaymentController {
 
       if (!ref || typeof ref !== 'string') {
         console.error('Mobile payment callback received without reference');
-        return res.redirect('pinewraps://payment/error?message=Payment reference is missing');
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Payment reference is missing' 
+        });
       }
 
-      if (cancelled) {
-        return res.redirect('pinewraps://payment/cancel');
+      if (cancelled === 'true') {
+        console.log('Payment was cancelled by user');
+        return res.status(200).json({ 
+          success: false, 
+          error: 'Payment was cancelled',
+          status: 'CANCELLED'
+        });
       }
 
       const paymentService = new PaymentService();
       
       try {
-        // Process payment and get result
+        // Process payment and get result - this updates payment and order status
         const result = await paymentService.handleCallback(ref);
         console.log('Payment processed successfully:', result);
 
-        if (result.status === PaymentStatus.CAPTURED) {
-          // Include merchant order ID in success redirect
-          return res.redirect(`pinewraps://payment/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`);
-        } else {
-          // Include merchant order ID in error redirect
-          return res.redirect(`pinewraps://payment/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}`);
-        }
+        return res.status(200).json({
+          success: true,
+          data: {
+            status: result.status,
+            orderId: result.orderId,
+            orderNumber: result.orderNumber,
+            errorMessage: result.errorMessage
+          }
+        });
       } catch (error) {
         console.error('Error processing mobile payment:', error);
         const errorMessage = error.message || 'An error occurred while processing payment';
-        return res.redirect(`pinewraps://payment/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(errorMessage)}`);
+        return res.status(500).json({ 
+          success: false, 
+          error: errorMessage 
+        });
       }
     } catch (error) {
       console.error('Error in mobile payment callback:', error);
-      return res.redirect('pinewraps://payment/error?message=An error occurred while processing payment');
+      return res.status(500).json({ 
+        success: false, 
+        error: 'An error occurred while processing payment' 
+      });
     }
   }
 
