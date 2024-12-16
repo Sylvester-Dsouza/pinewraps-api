@@ -205,41 +205,24 @@ export class PaymentController {
         return res.status(404).json({ success: false, error: 'Payment not found' });
       }
 
-      // Get latest status from payment gateway
-      const paymentService = new PaymentService();
-      const gatewayStatus = await paymentService.getPaymentStatus(ref);
-
-      // Extract payment state from embedded payment object
-      const paymentData = gatewayStatus._embedded?.payment?.[0];
-      const paymentState = paymentData?.state?.toUpperCase();
-      
-      // Define success states
-      const successStates = ['CAPTURED', 'PURCHASED', 'AUTHORISED', 'AUTHORIZED'];
-      const newStatus = successStates.includes(paymentState) ? PaymentStatus.CAPTURED : PaymentStatus.FAILED;
-      
-      // Update payment status if it has changed
-      if (payment.status !== newStatus) {
-        await paymentService.handleCallback(ref);
-      }
-
-      // Return updated payment status
+      // Format response specifically for mobile
       return res.json({
         success: true,
         data: {
-          status: newStatus,
-          orderId: payment.orderId,
+          status: payment.status,
+          orderId: payment.order?.id,
           orderNumber: payment.order?.orderNumber,
           amount: payment.amount,
           currency: payment.currency,
-          errorMessage: payment.errorMessage
+          createdAt: payment.createdAt,
+          updatedAt: payment.updatedAt
         }
       });
     } catch (error) {
-      console.error('Error in getMobilePaymentStatus:', error);
+      console.error('Error getting mobile payment status:', error);
       return res.status(500).json({ 
         success: false, 
-        error: 'Failed to get payment status',
-        message: error.message 
+        error: 'Failed to get payment status'
       });
     }
   }
