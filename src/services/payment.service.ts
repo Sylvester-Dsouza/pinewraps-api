@@ -350,7 +350,7 @@ export class PaymentService {
     }
   }
 
-  async createPaymentOrder(order: Order & { customer: any }, platform: 'web' | 'mobile' = 'web'): Promise<{ paymentUrl: string, merchantOrderId: string }> {
+  async createPaymentOrder(order: Order & { customer: any }, platform: 'web' | 'mobile' = 'web'): Promise<{ paymentUrl: string }> {
     try {
       console.log('Creating payment order for:', {
         orderId: order.id,
@@ -476,8 +476,7 @@ export class PaymentService {
       });
 
       return {
-        paymentUrl: response.data._links.payment.href,
-        merchantOrderId: response.data.reference
+        paymentUrl: response.data._links.payment.href
       };
     } catch (error) {
       if (axios.isAxiosError(error)) {
