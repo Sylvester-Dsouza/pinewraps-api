@@ -32,7 +32,13 @@ export class PaymentController {
       const paymentService = new PaymentService();
       const result = await paymentService.createPaymentOrder(order, platform);
 
-      res.json(result);
+      res.json({
+        success: true,
+        data: {
+          paymentUrl: result.paymentUrl,
+          merchantOrderId: result.merchantOrderId
+        }
+      });
     } catch (error) {
       console.error('Error in createPayment:', error);
       res.status(500).json({ message: error.message });
