@@ -109,20 +109,20 @@ export class PaymentController {
         console.log('Payment processed successfully:', result);
 
         if (result.status === PaymentStatus.CAPTURED) {
-          // Redirect to success page with order details
-          return res.redirect('pinewraps://payment/success');
+          // Include merchant order ID in success redirect
+          return res.redirect(`pinewraps://payment/success?ref=${encodeURIComponent(ref)}&orderId=${encodeURIComponent(result.orderId)}&orderNumber=${encodeURIComponent(result.orderNumber)}`);
         } else {
-          // Handle failed payment
-          return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}`);
+          // Include merchant order ID in error redirect
+          return res.redirect(`pinewraps://payment/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(result.errorMessage || 'Payment verification failed')}`);
         }
       } catch (error) {
         console.error('Error processing mobile payment:', error);
         const errorMessage = error.message || 'An error occurred while processing payment';
-        return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent(errorMessage)}`);
+        return res.redirect(`pinewraps://payment/error?ref=${encodeURIComponent(ref)}&message=${encodeURIComponent(errorMessage)}`);
       }
     } catch (error) {
       console.error('Error in mobile payment callback:', error);
-      return res.redirect(`pinewraps://payment/error?message=${encodeURIComponent('An error occurred while processing payment')}`);
+      return res.redirect('pinewraps://payment/error?message=An error occurred while processing payment');
     }
   }
 
