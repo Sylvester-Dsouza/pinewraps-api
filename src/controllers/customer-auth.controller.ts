@@ -231,10 +231,49 @@ export const customerAuth = {
       
       // Find or create customer
       const customer = await prisma.$transaction(async (prisma) => {
-        console.log('Looking for existing customer with email:', decodedToken.email);
-        let customer = await prisma.customer.findUnique({
-          where: { email: decodedToken.email }
+        console.log('Looking for existing customer with Firebase UID:', decodedToken.uid);
+        
+        // First try to find by Firebase UID
+        let customer = await prisma.customer.findFirst({
+          where: { firebaseUid: decodedToken.uid }
         });
+
+        if (!customer) {
+          // If not found by UID, check by email to handle migration cases
+          console.log('Looking for existing customer with email:', decodedToken.email);
+          customer = await prisma.customer.findUnique({
+            where: { email: decodedToken.email }
+          });
+
+          if (customer) {
+            // If found by email but different UID, this is a different account
+            console.log('Found customer with same email but different UID, creating new account');
+            const randomSuffix = Math.random().toString(36).substring(2, 7);
+            const newEmail = `${decodedToken.email.split('@')[0]}+${randomSuffix}@${decodedToken.email.split('@')[1]}`;
+            
+            customer = await prisma.customer.create({
+              data: {
+                email: newEmail,
+                firstName: decodedToken.given_name || decodedToken.name?.split(' ')[0] || '',
+                lastName: decodedToken.family_name || decodedToken.name?.split(' ').slice(1).join(' ') || '',
+                phone: decodedToken.phone_number || null,
+                firebaseUid: decodedToken.uid,
+                provider: provider as AuthProvider,
+                isEmailVerified: decodedToken.email_verified || false,
+                reward: {
+                  create: {
+                    points: 0,
+                    totalPoints: 0,
+                    tier: 'BRONZE'
+                  }
+                }
+              },
+              include: {
+                reward: true
+              }
+            });
+          }
+        }
 
         if (!customer) {
           console.log('No existing customer found, creating new customer');
