@@ -6,6 +6,7 @@ import { ProductStatus, VariationType } from '@prisma/client';
 import { createProductSchema, updateProductSchema } from '../schemas/product.schema';
 import crypto from 'crypto';
 import { generateSlug, ensureUniqueSlug } from '../utils/helpers';
+import { nanoid } from 'nanoid';
 
 // Function to generate a unique ID
 const generateId = () => crypto.randomBytes(8).toString('hex');
@@ -322,10 +323,20 @@ export async function getAllProducts(req: Request, res: Response) {
       });
 
       // Format the products to include combinations
-      const formattedProducts = products.map(product => ({
-        ...product,
-        combinations: JSON.parse(product.variantCombinations?.toString() || '[]')
-      }));
+      const formattedProducts = products.map(product => {
+        let combinations = [];
+        try {
+          combinations = typeof product.variantCombinations === 'string' 
+            ? JSON.parse(product.variantCombinations) 
+            : product.variantCombinations || [];
+        } catch (error) {
+          console.error('Error parsing combinations for product:', product.id, error);
+        }
+        return {
+          ...product,
+          combinations
+        };
+      });
 
       return res.json({
         success: true,
@@ -432,45 +443,48 @@ export const updateProduct = async (
   next: NextFunction
 ) => {
   try {
-    const productId = req.params.id;
+    const { id } = req.params;
+    console.log('Updating product:', id);
+    console.log('Update data:', req.body);
+
+    // Validate update data
     const validatedData = updateProductSchema.parse(req.body);
 
-    // Handle combinations/variantCombinations
-    let combinationsData = validatedData.combinations || validatedData.variantCombinations;
-    if (combinationsData) {
-      // Only store combinations if we have multiple variations
-      const hasMultipleVariations = Array.isArray(validatedData.variations) && validatedData.variations.length > 1;
-      combinationsData = hasMultipleVariations
-        ? (typeof combinationsData === 'string'
-            ? combinationsData
-            : JSON.stringify(combinationsData))
-        : '[]';
+    // If name is being updated, generate new slug
+    if (validatedData.name) {
+      const baseSlug = generateSlug(validatedData.name);
+      validatedData.slug = await ensureUniqueSlug(baseSlug, id);
+      console.log('Generated new slug:', validatedData.slug);
     }
 
-    // Handle variations
-    let variations = validatedData.variations;
-    if (variations && typeof variations === 'string') {
-      variations = JSON.parse(variations);
-    }
-
-    // Prepare the update data
-    const productData: any = {
-      ...validatedData
-    };
-
-    // Remove fields that should not be passed to Prisma
-    delete productData.combinations;
-    delete productData.existingImages;
-    delete productData.deletedImages;
-    delete productData.variations; // Remove variations from main update
-    delete productData.variantCombinations; // Remove combinations from main update
-
-    // First update the product without variations
+    // Update the product
     const updatedProduct = await prisma.product.update({
-      where: { id: productId },
+      where: { id },
       data: {
-        ...productData,
-        variantCombinations: combinationsData
+        name: validatedData.name,
+        description: validatedData.description,
+        basePrice: validatedData.basePrice,
+        sku: validatedData.sku,
+        categoryId: validatedData.categoryId,
+        status: validatedData.status,
+        slug: validatedData.slug,
+        updatedBy: req.user?.uid,
+        variations: {
+          deleteMany: {},
+          create: validatedData.variations?.map(variation => ({
+            id: nanoid(),
+            type: variation.type,
+            options: {
+              create: variation.options?.map(option => ({
+                id: nanoid(),
+                value: option.value,
+                priceAdjustment: option.priceAdjustment || 0,
+                stock: option.stock || 0
+              })) || []
+            }
+          })) || []
+        },
+        variantCombinations: validatedData.combinations || []
       },
       include: {
         category: {
@@ -488,168 +502,21 @@ export const updateProduct = async (
           select: {
             id: true,
             url: true,
-            alt: true
+            alt: true,
+            isPrimary: true
           }
         }
       }
     });
 
-    // If variations exist, handle them separately
-    if (variations && Array.isArray(variations)) {
-      // First, delete all existing variations and their options
-      await prisma.productVariationOption.deleteMany({
-        where: {
-          variation: {
-            productId: productId
-          }
-        }
-      });
-      await prisma.productVariation.deleteMany({
-        where: { productId: productId }
-      });
+    console.log('Product updated successfully:', updatedProduct.id);
 
-      // Create new variations with their options
-      await prisma.productVariation.createMany({
-        data: variations.map(variation => ({
-          id: generateId(),
-          type: variation.type,
-          productId: productId
-        }))
-      });
-
-      // Create options for each variation
-      for (const variation of variations) {
-        const createdVariation = await prisma.productVariation.findFirst({
-          where: {
-            productId: productId,
-            type: variation.type
-          }
-        });
-
-        if (createdVariation) {
-          await prisma.productVariationOption.createMany({
-            data: variation.options.map(option => ({
-              id: generateId(),
-              value: option.value,
-              priceAdjustment: Number(option.priceAdjustment || 0),
-              stock: Number(option.stock || 0),
-              variationId: createdVariation.id
-            }))
-          });
-        }
-      }
-    }
-
-    // Handle image deletions if specified
-    if (validatedData.deletedImages?.length) {
-      try {
-        // Get the images to delete
-        const imagesToDelete = await prisma.productImage.findMany({
-          where: {
-            id: { in: validatedData.deletedImages },
-            productId: productId
-          }
-        });
-
-        // Delete from Firebase and database
-        await Promise.all(imagesToDelete.map(async (image) => {
-          await deleteFromFirebase(image.url);
-          await prisma.productImage.delete({
-            where: { id: image.id }
-          });
-        }));
-      } catch (error) {
-        console.error('Error deleting images:', error);
-      }
-    }
-
-    // Handle file uploads if any
-    const files = Array.isArray(req.files) ? req.files : [];
-    if (files.length) {
-      try {
-        // Upload images to Firebase
-        const uploadPromises = files.map(async (file) => {
-          const imageId = generateId();
-          const cleanFileName = file.originalname
-            .toLowerCase()
-            .replace(/[^a-z0-9.-]/g, '-')
-            .replace(/-+/g, '-');
-          const filePath = `products/${productId}/${imageId}-${cleanFileName}`;
-          
-          const uploadResult = await uploadToFirebase(file, filePath);
-
-          return {
-            id: imageId,
-            url: uploadResult.url,
-            alt: file.originalname,
-            productId: productId
-          };
-        });
-
-        const uploadedImages = await Promise.all(uploadPromises);
-
-        // Create image records in the database
-        await prisma.productImage.createMany({
-          data: uploadedImages.map(image => ({
-            id: generateId(),
-            productId: image.productId,
-            url: image.url,
-            alt: image.alt || undefined,
-            isPrimary: false
-          }))
-        });
-      } catch (error) {
-        console.error('Error handling file uploads:', error);
-        throw new ApiError('Failed to upload images', 500);
-      }
-    }
-
-    // Get the final updated product with all relations
-    const finalProduct = await prisma.product.findUnique({
-      where: { id: productId },
-      include: {
-        category: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        variations: {
-          include: {
-            options: true
-          }
-        },
-        images: {
-          select: {
-            id: true,
-            url: true,
-            alt: true
-          }
-        }
-      }
-    });
-
-    if (!finalProduct) {
-      throw new ApiError('Product not found after update', 404);
-    }
-
-    // Format the response
-    const formattedProduct = {
-      ...finalProduct,
-      combinations: JSON.parse(finalProduct.variantCombinations?.toString() || '[]')
-    };
-
-    return res.status(200).json({
+    return res.json({
       success: true,
-      data: {
-        product: formattedProduct
-      }
+      data: updatedProduct
     });
   } catch (error) {
     console.error('Error updating product:', error);
-    if (error instanceof ApiError) {
-      return next(error);
-    }
     return next(new ApiError('Failed to update product', 500));
   }
 };
@@ -958,11 +825,13 @@ export const getPublicProductById = async (
     const { id } = req.params;
     console.log('Fetching public product by ID or slug:', id);
 
-    const product = await prisma.product.findFirst({
+    // First try to find by exact slug match
+    let product = await prisma.product.findFirst({
       where: {
         OR: [
           { id },
-          { slug: id }
+          { slug: id },
+          { slug: id.toLowerCase() } // Also try lowercase version
         ],
         status: 'ACTIVE'
       },
@@ -982,19 +851,28 @@ export const getPublicProductById = async (
       }
     });
 
-    console.log('Found product:', product ? 'yes' : 'no');
-
     if (!product) {
+      console.log('Product not found:', id);
       return res.status(404).json({
         success: false,
         error: 'Product not found'
       });
     }
 
+    // Parse variant combinations
+    let combinations = [];
+    try {
+      combinations = typeof product.variantCombinations === 'string'
+        ? JSON.parse(product.variantCombinations)
+        : product.variantCombinations || [];
+    } catch (error) {
+      console.error('Error parsing combinations:', error);
+    }
+
     // Format the response
     const formattedProduct = {
       ...product,
-      combinations: JSON.parse(product.variantCombinations?.toString() || '[]')
+      combinations
     };
 
     return res.json({
