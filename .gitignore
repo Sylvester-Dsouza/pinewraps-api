@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+
+# misc
+.DS_Store
+
+# Logs
+*.log
+
+# Firebase
+firebase-service-account.json
+
+# Environment variables
+.env
+.env.local
+
+# production
+dist/
+
+# TypeScript
+tsconfig.tsbuildinfo

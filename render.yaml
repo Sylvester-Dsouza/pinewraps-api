@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: pinewraps-api
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: NGENIUS_API_KEY
+        sync: false
+      - key: NGENIUS_OUTLET_ID
+        sync: false
+      - key: NGENIUS_API_URL
+        sync: false

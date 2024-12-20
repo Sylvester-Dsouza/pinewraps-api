@@ -1,0 +1,494 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+//==================================
+// Enums
+//==================================
+enum UserRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AdminAccess {
+  DASHBOARD
+  PRODUCTS
+  ORDERS
+  USERS
+  ADMIN
+  REWARDS
+  COUPONS
+  CATEGORIES
+  CUSTOMERS
+  SETTINGS
+}
+
+enum ProductStatus {
+  DRAFT
+  ACTIVE
+}
+
+enum VariationType {
+  SIZE
+  FLAVOUR
+}
+
+enum AddressType {
+  SHIPPING
+  BILLING
+}
+
+enum OrderStatus {
+  PENDING
+  PENDING_PAYMENT
+  PROCESSING
+  READY_FOR_PICKUP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  COMPLETED
+  REFUNDED
+}
+
+enum DeliveryType {
+  DELIVERY
+  PICKUP
+}
+
+enum PaymentMethod {
+  CREDIT_CARD
+  CASH
+}
+
+enum CommunicationType {
+  EMAIL
+  SMS
+  SYSTEM
+}
+
+enum CouponType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum CouponStatus {
+  ACTIVE
+  INACTIVE
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  FAILED
+  CAPTURED
+}
+
+enum Emirates {
+  ABU_DHABI
+  DUBAI
+  SHARJAH
+  AJMAN
+  UMM_AL_QUWAIN
+  RAS_AL_KHAIMAH
+  FUJAIRAH
+}
+
+enum RewardTier {
+  GREEN
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum RewardHistoryType {
+  EARNED
+  REDEEMED
+  FAILED
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  FACEBOOK
+  APPLE
+}
+
+//==================================
+// User & Authentication Models
+//==================================
+model User {
+  id          String        @id @default(uuid())
+  email       String        @unique
+  name        String?
+  firebaseUid String?       @unique
+  role        UserRole      @default(ADMIN)
+  adminAccess AdminAccess[]
+  isActive    Boolean       @default(true)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+//==================================
+// Customer Models
+//==================================
+model Customer {
+  id              String            @id @default(uuid())
+  firstName       String
+  lastName        String
+  email           String            @unique
+  phone           String?
+  birthDate       DateTime?
+  firebaseUid     String?           @unique
+  provider        AuthProvider?
+  isEmailVerified Boolean           @default(false)
+  rewardPoints    Int               @default(0)
+  addresses       CustomerAddress[]
+  orders          Order[]
+  couponUsages    CouponUsage[]
+  reward          CustomerReward?
+  rewardHistory   RewardHistory[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  @@index([email])
+}
+
+model CustomerAddress {
+  id         String      @id @default(uuid())
+  customerId String
+  type       AddressType
+  street     String
+  apartment  String?
+  emirate    Emirates
+  city       String
+  country    String      @default("United Arab Emirates")
+  pincode    String?
+  isDefault  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  customer   Customer    @relation(fields: [customerId], references: [id])
+
+  @@index([customerId])
+}
+
+//==================================
+// Product Models
+//==================================
+model Category {
+  id          String    @id
+  name        String
+  description String?
+  slug        String    @unique
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  createdBy   String?
+  updatedBy   String?
+  products    Product[]
+}
+
+model Product {
+  id                  String             @id
+  name                String
+  description         String?
+  sku                 String             @unique
+  status              ProductStatus      @default(DRAFT)
+  basePrice           Float
+  slug                String             @unique @default("")
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  createdBy           String?
+  updatedBy           String?
+  categoryId          String
+  category            Category           @relation(fields: [categoryId], references: [id])
+  images              ProductImage[]
+  variations          ProductVariation[]
+  variantCombinations Json?              @default("[]")
+}
+
+model ProductImage {
+  id        String   @id
+  url       String
+  alt       String?
+  productId String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isPrimary Boolean  @default(false)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model ProductVariation {
+  id        String                   @id
+  type      VariationType
+  productId String
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+  product   Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options   ProductVariationOption[]
+}
+
+model ProductVariationOption {
+  id              String           @id
+  value           String
+  priceAdjustment Float            @default(0)
+  stock           Int              @default(0)
+  variationId     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  variation       ProductVariation @relation(fields: [variationId], references: [id], onDelete: Cascade)
+}
+
+//==================================
+// Order Management Models
+//==================================
+model Order {
+  id              String            @id @default(uuid())
+  idempotencyKey  String?          @unique
+  customerId      String?
+  customer        Customer?         @relation(fields: [customerId], references: [id])
+  status          OrderStatus      @default(PENDING)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  date            DateTime?
+  orderNumber     String?
+  pointsEarned    Int?
+  pointsRedeemed  Int              @default(0)
+  pointsValue     Float            @default(0)
+  discountAmount  Float?
+  adminNotes      String?
+
+  // Customer Information
+  customerPhone   String?
+
+  // Delivery Information
+  deliveryMethod        DeliveryType    @default(DELIVERY)
+  deliveryDate         DateTime?
+  deliveryTimeSlot     String?
+  deliveryCharge       Float           @default(0)
+  deliveryInstructions String?
+
+  // Pickup Information
+  pickupDate           DateTime?
+  pickupTimeSlot       String?
+  storeLocation        String?
+
+  // Address Information
+  streetAddress        String?
+  apartment           String?
+  emirate             String?
+  city                String?
+  pincode             String?
+  country             String?         @default("United Arab Emirates")
+
+  // Gift Information
+  isGift              Boolean         @default(false)
+  giftMessage         String?
+
+  // Order Items
+  items               OrderItem[]
+  subtotal            Float
+  total               Float
+
+  // Payment Information
+  paymentStatus       PaymentStatus   @default(FAILED)
+  paymentMethod       String?
+  paymentId           String?
+  payment             Payment?
+
+  // Coupon Information
+  couponCode          String?
+  couponDiscount      Float           @default(0)
+
+  // Relations
+  statusHistory       OrderStatusHistory[]
+  communications      OrderCommunication[]
+  coupon              Coupon?              @relation(fields: [couponId], references: [id])
+  couponId            String?
+  couponUsages        CouponUsage[]
+  rewardHistory       RewardHistory[]
+  snapshot            OrderSnapshot?
+  customerReward      CustomerReward?      @relation(fields: [customerRewardId], references: [id], onDelete: SetNull)
+  customerRewardId    String?
+
+  @@map("Order")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid())
+  orderId     String
+  name        String
+  variant     String?
+  variations  Json?    @default("[]")
+  price       Float
+  quantity    Int
+  cakeWriting String?
+  order       Order    @relation(fields: [orderId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orderId])
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  status    OrderStatus
+  notes     String?
+  updatedBy String
+  updatedAt DateTime    @default(now())
+  order     Order       @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+model OrderCommunication {
+  id        String            @id @default(uuid())
+  orderId   String
+  type      CommunicationType
+  subject   String?
+  content   String
+  sentBy    String
+  sentAt    DateTime
+  order     Order             @relation(fields: [orderId], references: [id])
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@index([orderId])
+}
+
+//==================================
+// Order Snapshot Models
+//==================================
+model OrderSnapshot {
+  id            String  @id @default(cuid())
+  orderId       String  @unique
+  order         Order   @relation(fields: [orderId], references: [id])
+  
+  // Customer Information at time of order
+  customerName  String?
+  customerEmail String?
+  customerPhone String?
+  
+  // Address at time of order
+  streetAddress String?
+  apartment     String?
+  emirate       String?
+  city          String?
+  pincode       String?
+  
+  // Metadata
+  createdAt     DateTime @default(now())
+}
+
+//==================================
+// Payment Models
+//==================================
+model Payment {
+  id               String        @id @default(uuid())
+  orderId          String        @unique
+  order            Order         @relation(fields: [orderId], references: [id])
+  amount           Float
+  currency         String        @default("AED")
+  status           PaymentStatus @default(FAILED)
+  paymentMethod    PaymentMethod
+  merchantOrderId  String?       @unique // Network International order reference
+  paymentOrderId   String?       @unique // Network International payment order ID
+  paymentReference String?       @unique // Network International payment reference
+  gatewayResponse  Json? // Store complete gateway response
+  errorMessage     String?
+  refundAmount     Float?
+  refundReason     String?
+  metadata         Json? // Additional payment metadata
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  @@index([status])
+  @@index([paymentMethod])
+  @@index([merchantOrderId])
+  @@index([paymentOrderId])
+  @@index([paymentReference])
+}
+
+//==================================
+// Coupon & Rewards Models
+//==================================
+model Coupon {
+  id             String        @id @default(uuid())
+  code           String        @unique
+  type           CouponType
+  value          Float // Percentage or fixed amount
+  description    String?
+  minOrderAmount Float? // Minimum order amount required
+  maxDiscount    Float? // Maximum discount amount (for percentage coupons)
+  status         CouponStatus  @default(ACTIVE)
+  startDate      DateTime
+  endDate        DateTime?
+  usageLimit     Int? // Maximum number of times coupon can be used
+  usageCount     Int           @default(0)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  createdBy      String?
+  updatedBy      String?
+  orders         Order[]
+  usages         CouponUsage[]
+}
+
+model CouponUsage {
+  id          String   @id @default(uuid())
+  couponId    String
+  orderId     String
+  customerId  String
+  usedAt      DateTime @default(now())
+  discount    Float
+  coupon      Coupon   @relation(fields: [couponId], references: [id])
+  order       Order    @relation(fields: [orderId], references: [id])
+  customer    Customer @relation(fields: [customerId], references: [id])
+
+  @@unique([couponId, orderId, customerId])
+  @@index([couponId])
+  @@index([orderId])
+  @@index([customerId])
+}
+
+model CustomerReward {
+  id          String          @id @default(uuid())
+  customerId  String          @unique
+  customer    Customer        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  points      Int            @default(0)
+  totalPoints Int            @default(0)
+  tier        RewardTier     @default(GREEN)
+  history     RewardHistory[]
+  orders      Order[]        // This is the back-reference for Order.customerReward
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model RewardHistory {
+  id            String           @id @default(uuid())
+  customerId    String
+  customer      Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId       String?          // Made optional since rewards might not always be order-related
+  order         Order?           @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  rewardId      String
+  reward        CustomerReward   @relation(fields: [rewardId], references: [id], onDelete: Cascade)
+  pointsEarned  Int             @default(0)  // Added default
+  pointsRedeemed Int            @default(0)
+  orderTotal    Float?          // Made optional since not all rewards are order-based
+  action        RewardHistoryType
+  description   String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([customerId])
+  @@index([rewardId])
+  @@index([orderId])
+}
