@@ -120,7 +120,7 @@ export class OrderAnalyticsService {
       }
     });
   }
-
+// Calculate monthly growth
   private static calculateGrowth(current: number | null, previous: number | null): number {
     if (!current || !previous || previous === 0) return 0;
     return ((current - previous) / previous) * 100;
