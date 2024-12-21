@@ -214,6 +214,8 @@ export class OrderService {
       subtotal,
       isGift,
       giftMessage,
+      giftRecipientName,
+      giftRecipientPhone,
       notes,
       couponCode,
       pointsRedeemed
@@ -330,6 +332,8 @@ export class OrderService {
         // Gift Information
         isGift,
         giftMessage,
+        giftRecipientName,
+        giftRecipientPhone,
         // Admin Notes
         adminNotes: notes,
         // Coupon
@@ -925,6 +929,8 @@ export class OrderService {
       // Gift Information
       isGift: order.isGift,
       giftMessage: order.giftMessage,
+      giftRecipientName: order.giftRecipientName,
+      giftRecipientPhone: order.giftRecipientPhone,
       // Payment Information
       payment: {
         status: order.paymentStatus,

@@ -105,6 +105,8 @@ export const CreateOrderSchema = z.object({
   notes: z.string().optional(),
   isGift: z.boolean().optional().default(false),
   giftMessage: z.string().optional(),
+  giftRecipientName: z.string().optional(),
+  giftRecipientPhone: z.string().optional(),
   
   // Points & Discounts
   pointsRedeemed: z.number().optional().default(0),

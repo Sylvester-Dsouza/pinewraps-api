@@ -292,6 +292,8 @@ model Order {
   // Gift Information
   isGift              Boolean         @default(false)
   giftMessage         String?
+  giftRecipientName   String?
+  giftRecipientPhone  String?
 
   // Order Items
   items               OrderItem[]
