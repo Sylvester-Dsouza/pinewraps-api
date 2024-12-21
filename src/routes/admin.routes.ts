@@ -60,67 +60,67 @@ router.post('/login', async (req: Request, res: Response) => {
 // Create new admin user
 router.post('/users', requireAuth, requireSuperAdmin, async (req: Request, res: Response) => {
   try {
-    const { email, password, name, adminAccess = [] } = req.body;
+    const { email, firstName, lastName, password, permissions, role = UserRole.ADMIN } = req.body;
 
-    if (!email || !password || !name) {
-      throw new ApiError('Email, password, and name are required', 400);
+    // Validate required fields
+    if (!email || !firstName || !lastName || !password || !permissions) {
+      throw new ApiError('Missing required fields', 400);
     }
 
-    // Check if user exists in Firebase
-    try {
-      const existingUser = await auth.getUserByEmail(email);
-      if (existingUser) {
-        throw new ApiError('Email already exists', 400);
-      }
-    } catch (error: any) {
-      if (error.code !== 'auth/user-not-found') {
-        throw error;
-      }
+    // Validate permissions array
+    if (!Array.isArray(permissions) || permissions.length === 0) {
+      throw new ApiError('Permissions must be a non-empty array', 400);
+    }
+
+    // Validate each permission is valid AdminAccess enum value
+    const validPermissions = Object.values(AdminAccess);
+    const invalidPermissions = permissions.filter(p => !validPermissions.includes(p));
+    if (invalidPermissions.length > 0) {
+      throw new ApiError(`Invalid permissions: ${invalidPermissions.join(', ')}`, 400);
     }
 
     // Create Firebase user
     const userRecord = await auth.createUser({
       email,
       password,
-      displayName: name,
-      emailVerified: true
+      displayName: `${firstName} ${lastName}`,
     });
 
-    // Create user in database
+    // Create admin in database
     const admin = await prisma.user.create({
       data: {
         email,
-        name,
+        firstName,
+        lastName,
         firebaseUid: userRecord.uid,
-        role: UserRole.ADMIN,
-        adminAccess,
-        isActive: true
-      }
+        role,
+        adminAccess: permissions,
+        isActive: true,
+        createdBy: req.user?.firebaseUid,
+      },
     });
 
     // Set custom claims
     await auth.setCustomUserClaims(userRecord.uid, {
-      role: UserRole.ADMIN,
+      role,
       adminId: admin.id,
       access: admin.adminAccess
     });
 
     res.json({
       success: true,
-      data: {
-        id: admin.id,
-        email: admin.email,
-        name: admin.name,
-        role: admin.role,
-        adminAccess: admin.adminAccess,
-        isActive: admin.isActive
-      }
+      data: admin
     });
   } catch (error) {
     if (error instanceof ApiError) {
       res.status(error.statusCode).json({
         success: false,
         error: { message: error.message }
+      });
+    } else if (error.code === 'auth/email-already-exists') {
+      res.status(400).json({
+        success: false,
+        error: { message: 'Email already exists' }
       });
     } else {
       console.error('Error creating admin:', error);

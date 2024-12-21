@@ -438,7 +438,7 @@ export class OrderService {
       await prisma.orderStatusHistory.create({
         data: {
           orderId: orderId,
-          status: status as OrderStatus,
+          status: status,
           notes: `Status changed from ${existingOrder.status} to ${status}`,
           updatedBy: updatedBy
         }
@@ -463,9 +463,6 @@ export class OrderService {
         }
       });
 
-      // Transform the order before sending response
-      const transformedOrder = OrderService.transformOrder(updatedOrder);
-
       // Send order status update email
       try {
         const { OrderEmailService } = await import('./order-email.service');
@@ -478,16 +475,10 @@ export class OrderService {
       // Notify through WebSocket if available
       this.sendOrderUpdate(orderId, status, updatedOrder.customerId);
 
-      return {
-        success: true,
-        data: transformedOrder
-      };
+      return updatedOrder;
     } catch (error) {
       console.error('Error updating order status:', error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Failed to update order status'
-      };
+      throw error;
     }
   }
 

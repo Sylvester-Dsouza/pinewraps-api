@@ -197,20 +197,35 @@ export class OrderController {
 
   static async updateOrderStatus(req: Request, res: Response) {
     try {
-      const { id } = req.params;
+      const { orderId } = req.params;
       const { status } = UpdateOrderStatusSchema.parse(req.body);
 
+      if (!orderId) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_ORDER_ID',
+            message: 'Order ID is required'
+          }
+        });
+      }
+
       if (!Object.values(OrderStatus).includes(status)) {
-        throw new ApiError(400, 'Invalid order status');
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_STATUS',
+            message: 'Invalid order status'
+          }
+        });
       }
 
       const updatedBy = req.user?.email || 'ADMIN';
-      const updatedOrder = await OrderService.updateOrderStatus(id, status as OrderStatus, updatedBy);
+      const updatedOrder = await OrderService.updateOrderStatus(orderId, status as OrderStatus, updatedBy);
       
       return res.json({
         success: true,
-        data: updatedOrder,
-        message: 'Order status updated successfully'
+        data: updatedOrder
       });
     } catch (error) {
       console.error('Update order status error:', error);

@@ -137,6 +137,21 @@ model User {
   updatedAt   DateTime      @updatedAt
 }
 
+model Admin {
+  id            String        @id @default(uuid())
+  firebaseUid   String       @unique
+  email         String       @unique
+  firstName     String
+  lastName      String
+  role          UserRole     @default(ADMIN)
+  permissions   AdminAccess[] 
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  createdBy     String?      // Firebase UID of the admin who created this admin
+  lastLogin     DateTime?
+  isActive      Boolean      @default(true)
+}
+
 //==================================
 // Customer Models
 //==================================
