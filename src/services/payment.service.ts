@@ -388,54 +388,22 @@ export class PaymentService {
       // Use platform-specific URLs
       const { redirectUrl, cancelUrl } = paymentConfig.ngenius[platform];
 
-      // Get the order total and ensure it's properly calculated
-      const orderTotal = order.total;
-      console.log('Order total breakdown:', {
-        subtotal: order.subtotal,
-        couponDiscount: order.couponDiscount || 0,
-        pointsValue: order.pointsValue || 0,
-        deliveryCharge: order.deliveryCharge || 0,
-        finalTotal: orderTotal
-      });
+      // Get exact whole number total from order
+      const orderTotal = Math.floor(order.total);
+      const amountInCents = orderTotal * 100;
 
-      // Convert to cents and round to avoid floating point issues
-      const amountInCents = Math.round(orderTotal * 100);
-
-      // Default store address for pickup orders
-      const storeAddress = {
-        address1: "Jumeirah 1",
-        city: "Dubai",
-        countryCode: "AE",
-        postcode: "12345"
-      };
-
-      // Determine billing address based on delivery type
-      const billingAddress = order.deliveryType === 'DELIVERY' && order.shippingAddress
-        ? {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: order.shippingAddress.street || 'Not Provided',
-            apartment: order.shippingAddress.apartment,
-            city: order.shippingAddress.city || 'Dubai',
-            countryCode: "AE",
-            postcode: order.shippingAddress.pincode || '12345'
-          }
-        : {
-            firstName: order.customer.firstName || 'Guest',
-            lastName: order.customer.lastName || 'Customer',
-            address1: storeAddress.address1,
-            city: storeAddress.city,
-            countryCode: storeAddress.countryCode,
-            postcode: storeAddress.postcode
-          };
-
-      console.log('N-Genius Configuration:', {
-        apiUrl: this.apiUrl,
-        outletRef: this.outletRef,
-        environment: process.env.NODE_ENV,
-        redirectUrl,
-        cancelUrl,
-        platform
+      console.log('Payment amount verification:', {
+        originalOrderTotal: order.total,
+        wholeNumberTotal: orderTotal,
+        amountInCents,
+        finalAmountInAED: amountInCents / 100,
+        breakdown: {
+          subtotal: Math.floor(order.subtotal),
+          couponDiscount: Math.floor(order.couponDiscount || 0),
+          pointsValue: Math.floor(order.pointsValue || 0),
+          deliveryCharge: Math.floor(order.deliveryCharge || 0),
+          calculatedTotal: Math.floor(order.subtotal) - Math.floor(order.couponDiscount || 0) - Math.floor(order.pointsValue || 0) + Math.floor(order.deliveryCharge || 0)
+        }
       });
 
       const payload = {
@@ -456,7 +424,13 @@ export class PaymentService {
         },
         emailAddress: order.customer.email,
         billingAddress: {
-          ...billingAddress,
+          firstName: order.customer.firstName || 'Guest',
+          lastName: order.customer.lastName || 'Customer',
+          address1: order.deliveryType === 'DELIVERY' && order.shippingAddress ? order.shippingAddress.street || 'Not Provided' : 'Jumeirah 1',
+          apartment: order.shippingAddress?.apartment,
+          city: order.shippingAddress?.city || 'Dubai',
+          countryCode: "AE",
+          postcode: order.shippingAddress?.pincode || '12345',
           phoneNumber: order.customer.phone || '+971500000000' // Default UAE phone if not provided
         },
         language: "en"

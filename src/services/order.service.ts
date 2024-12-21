@@ -219,26 +219,38 @@ export class OrderService {
       pointsRedeemed
     } = orderData;
 
-    // Calculate final total with all components
-    const deliveryCharge = deliveryMethod === 'DELIVERY' ? 
-      (emirate?.toUpperCase() === 'DUBAI' ? 30 : 50) : 0;
-
-    // Handle coupon if provided
-    const { couponId, discountAmount } = await this.handleCoupon(orderData);
-
-    // Calculate rewards discount
-    const pointsValue = (pointsRedeemed || 0) * 0.25; // Each point is worth 0.25 AED
-
-    // Calculate final total with all components
-    const finalTotal = Math.max(0, 
-      subtotal // Base price
-      - discountAmount // Coupon discount
-      - pointsValue // Points discount
-      + deliveryCharge // Delivery fee
+    // Floor all numeric values at the start
+    const wholeSubtotal = Math.floor(orderData.subtotal);
+    const wholeDeliveryCharge = Math.floor(
+      orderData.deliveryMethod === 'DELIVERY' 
+        ? (orderData.emirate?.toUpperCase() === 'DUBAI' ? 30 : 50) 
+        : 0
     );
 
-    // Round to 2 decimal places to avoid floating point issues
-    const roundedTotal = Math.round(finalTotal * 100) / 100;
+    // Handle coupon
+    const { couponId, discountAmount: couponDiscount } = await this.handleCoupon({
+      ...orderData,
+      subtotal: wholeSubtotal // Pass whole number subtotal
+    });
+
+    // Calculate points value
+    const wholePointsValue = Math.floor((orderData.pointsRedeemed || 0) * 0.25);
+
+    // Calculate final total
+    const finalTotal = Math.floor(Math.max(0,
+      wholeSubtotal
+      - couponDiscount // Already floored in handleCoupon
+      - wholePointsValue
+      + wholeDeliveryCharge
+    ));
+
+    console.log('Order creation amounts:', {
+      subtotal: wholeSubtotal,
+      couponDiscount,
+      pointsValue: wholePointsValue,
+      deliveryCharge: wholeDeliveryCharge,
+      finalTotal,
+    });
 
     // Validate required fields
     if (!email || !phone || !deliveryMethod) {
@@ -297,7 +309,7 @@ export class OrderService {
         deliveryDate: deliveryMethod === 'DELIVERY' ? new Date(deliveryDate + 'T00:00:00Z') : null,
         deliveryTimeSlot: deliveryMethod === 'DELIVERY' ? deliveryTimeSlot : null,
         deliveryInstructions: deliveryMethod === 'DELIVERY' ? deliveryInstructions : null,
-        deliveryCharge: deliveryMethod === 'DELIVERY' ? deliveryCharge : 0,
+        deliveryCharge: wholeDeliveryCharge,
         // Pickup Information
         pickupDate: deliveryMethod === 'PICKUP' ? new Date(pickupDate + 'T00:00:00Z') : null,
         pickupTimeSlot: deliveryMethod === 'PICKUP' ? pickupTimeSlot : null,
@@ -310,11 +322,11 @@ export class OrderService {
         pincode: deliveryMethod === 'DELIVERY' ? pincode : null,
         country: 'United Arab Emirates',
         // Totals
-        subtotal,
-        total: roundedTotal, // Use the properly calculated and rounded total
-        couponDiscount: discountAmount,
-        pointsValue: pointsValue,
-        deliveryCharge,
+        subtotal: wholeSubtotal,
+        total: finalTotal, // Use the properly calculated and rounded total
+        couponDiscount,
+        pointsValue: wholePointsValue,
+        deliveryCharge: wholeDeliveryCharge,
         // Gift Information
         isGift,
         giftMessage,
@@ -386,7 +398,7 @@ export class OrderService {
             customer: { connect: { id: customer.id } },
             pointsEarned: 0,
             pointsRedeemed: pointsRedeemed,
-            orderTotal: roundedTotal,
+            orderTotal: finalTotal,
             action: RewardHistoryType.REDEEMED,
             description: `Redeemed ${pointsRedeemed} points for AED ${(pointsRedeemed * 0.25).toFixed(2)}`,
             order: { connect: { id: order.id } },
@@ -584,33 +596,60 @@ export class OrderService {
   static async handleCoupon(orderData: any) {
     let couponDiscount = 0;
     let appliedCoupon = null;
-    
+
     if (orderData.couponCode) {
-      const coupon = await prisma.coupon.findUnique({
-        where: { code: orderData.couponCode }
+      const coupon = await prisma.coupon.findFirst({
+        where: {
+          code: orderData.couponCode,
+          status: 'ACTIVE',
+          startDate: { lte: new Date() },
+          OR: [
+            { endDate: null },
+            { endDate: { gte: new Date() } }
+          ]
+        }
       });
 
       if (coupon) {
-        if (
-          coupon.status === 'ACTIVE' &&
-          (!coupon.endDate || new Date() <= coupon.endDate) &&
-          (!coupon.usageLimit || coupon.usageCount < coupon.usageLimit) &&
-          (!coupon.minOrderAmount || orderData.total >= coupon.minOrderAmount)
-        ) {
+        // Always use whole numbers for calculation
+        const wholeSubtotal = Math.floor(orderData.subtotal);
+        
+        if (!coupon.minOrderAmount || wholeSubtotal >= Math.floor(coupon.minOrderAmount)) {
           if (coupon.type === 'PERCENTAGE') {
-            couponDiscount = (orderData.total * coupon.value) / 100;
-            if (coupon.maxDiscount && couponDiscount > coupon.maxDiscount) {
-              couponDiscount = coupon.maxDiscount;
+            // Calculate percentage discount
+            const wholePercentage = Math.floor(coupon.value);
+            couponDiscount = Math.floor((wholeSubtotal * wholePercentage) / 100);
+            
+            // Apply max discount if specified
+            if (coupon.maxDiscount) {
+              couponDiscount = Math.min(couponDiscount, Math.floor(coupon.maxDiscount));
             }
+
+            console.log('Percentage coupon calculation:', {
+              subtotal: wholeSubtotal,
+              percentage: wholePercentage,
+              calculatedDiscount: couponDiscount,
+              maxDiscount: coupon.maxDiscount ? Math.floor(coupon.maxDiscount) : 'none'
+            });
           } else {
-            couponDiscount = Math.min(coupon.value, orderData.total);
+            // Fixed amount discount
+            couponDiscount = Math.min(Math.floor(coupon.value), wholeSubtotal);
+            
+            console.log('Fixed amount coupon calculation:', {
+              subtotal: wholeSubtotal,
+              fixedAmount: Math.floor(coupon.value),
+              calculatedDiscount: couponDiscount
+            });
           }
           appliedCoupon = coupon;
         }
       }
     }
 
-    return { couponId: appliedCoupon?.id, discountAmount: couponDiscount };
+    return { 
+      couponId: appliedCoupon?.id, 
+      discountAmount: couponDiscount // Already floored in calculations
+    };
   }
 
   private static async recordCouponUsage(coupon: any, order: any, customer: any, discountAmount: number) {
