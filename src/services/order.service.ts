@@ -219,8 +219,26 @@ export class OrderService {
       pointsRedeemed
     } = orderData;
 
-    // Calculate final total with delivery charge
-    const finalTotal = subtotal + (deliveryMethod === 'DELIVERY' ? 30 : 0);
+    // Calculate final total with all components
+    const deliveryCharge = deliveryMethod === 'DELIVERY' ? 
+      (emirate?.toUpperCase() === 'DUBAI' ? 30 : 50) : 0;
+
+    // Handle coupon if provided
+    const { couponId, discountAmount } = await this.handleCoupon(orderData);
+
+    // Calculate rewards discount
+    const pointsValue = (pointsRedeemed || 0) * 0.25; // Each point is worth 0.25 AED
+
+    // Calculate final total with all components
+    const finalTotal = Math.max(0, 
+      subtotal // Base price
+      - discountAmount // Coupon discount
+      - pointsValue // Points discount
+      + deliveryCharge // Delivery fee
+    );
+
+    // Round to 2 decimal places to avoid floating point issues
+    const roundedTotal = Math.round(finalTotal * 100) / 100;
 
     // Validate required fields
     if (!email || !phone || !deliveryMethod) {
@@ -235,9 +253,6 @@ export class OrderService {
     if (!customer) {
       throw new Error('Customer not found');
     }
-
-    // Handle coupon if provided
-    const { couponId, discountAmount } = await this.handleCoupon(orderData);
 
     // Get or create customer reward record
     let customerReward = await prisma.customerReward.findFirst({
@@ -282,7 +297,7 @@ export class OrderService {
         deliveryDate: deliveryMethod === 'DELIVERY' ? new Date(deliveryDate + 'T00:00:00Z') : null,
         deliveryTimeSlot: deliveryMethod === 'DELIVERY' ? deliveryTimeSlot : null,
         deliveryInstructions: deliveryMethod === 'DELIVERY' ? deliveryInstructions : null,
-        deliveryCharge: deliveryMethod === 'DELIVERY' ? 30 : 0,
+        deliveryCharge: deliveryMethod === 'DELIVERY' ? deliveryCharge : 0,
         // Pickup Information
         pickupDate: deliveryMethod === 'PICKUP' ? new Date(pickupDate + 'T00:00:00Z') : null,
         pickupTimeSlot: deliveryMethod === 'PICKUP' ? pickupTimeSlot : null,
@@ -296,7 +311,10 @@ export class OrderService {
         country: 'United Arab Emirates',
         // Totals
         subtotal,
-        total: finalTotal, // Use the calculated final total
+        total: roundedTotal, // Use the properly calculated and rounded total
+        couponDiscount: discountAmount,
+        pointsValue: pointsValue,
+        deliveryCharge,
         // Gift Information
         isGift,
         giftMessage,
@@ -308,7 +326,6 @@ export class OrderService {
             id: couponId
           }
         } : undefined,
-        couponDiscount: discountAmount,
         // Items
         items: {
           create: items.map(item => ({
@@ -369,7 +386,7 @@ export class OrderService {
             customer: { connect: { id: customer.id } },
             pointsEarned: 0,
             pointsRedeemed: pointsRedeemed,
-            orderTotal: finalTotal,
+            orderTotal: roundedTotal,
             action: RewardHistoryType.REDEEMED,
             description: `Redeemed ${pointsRedeemed} points for AED ${(pointsRedeemed * 0.25).toFixed(2)}`,
             order: { connect: { id: order.id } },
