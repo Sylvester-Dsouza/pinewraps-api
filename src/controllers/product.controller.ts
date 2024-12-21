@@ -7,6 +7,7 @@ import { createProductSchema, updateProductSchema } from '../schemas/product.sch
 import crypto from 'crypto';
 import { generateSlug, ensureUniqueSlug } from '../utils/helpers';
 import { nanoid } from 'nanoid';
+import { normalizeVariantCombinations, parseVariantCombinations } from '../utils/product';
 
 // Function to generate a unique ID
 const generateId = () => crypto.randomBytes(8).toString('hex');
@@ -204,7 +205,10 @@ export const createProduct = async (
         // Format the response
         const formattedProduct = {
           ...updatedProduct,
-          combinations: JSON.parse(updatedProduct.variantCombinations?.toString() || '[]')
+          variations: updatedProduct.variations || [],
+          variantCombinations: typeof updatedProduct.variantCombinations === 'string'
+            ? updatedProduct.variantCombinations
+            : JSON.stringify(updatedProduct.variantCombinations || [])
         };
 
         return res.status(201).json({
@@ -232,7 +236,10 @@ export const createProduct = async (
     // Return the product without images if no files were uploaded
     const formattedProduct = {
       ...product,
-      combinations: JSON.parse(product.variantCombinations?.toString() || '[]')
+      variations: product.variations || [],
+      variantCombinations: typeof product.variantCombinations === 'string'
+        ? product.variantCombinations
+        : JSON.stringify(product.variantCombinations || [])
     };
 
     return res.status(201).json({
@@ -334,7 +341,8 @@ export async function getAllProducts(req: Request, res: Response) {
         }
         return {
           ...product,
-          combinations
+          variations: product.variations || [],
+          variantCombinations: combinations
         };
       });
 
@@ -389,10 +397,8 @@ export const getProductById = async (
     const { id } = req.params;
     console.log('Fetching product by ID:', id);
 
-    const product = await prisma.product.findFirst({
-      where: {
-        id
-      },
+    const product = await prisma.product.findUnique({
+      where: { id },
       include: {
         category: {
           select: {
@@ -421,14 +427,15 @@ export const getProductById = async (
     // Format the response to match the expected structure
     const formattedProduct = {
       ...product,
-      combinations: JSON.parse(product.variantCombinations?.toString() || '[]')
+      variations: product.variations || [],
+      variantCombinations: typeof product.variantCombinations === 'string'
+        ? product.variantCombinations
+        : JSON.stringify(product.variantCombinations || [])
     };
 
     return res.json({
       success: true,
-      data: {
-        product: formattedProduct
-      }
+      data: formattedProduct
     });
   } catch (error) {
     console.error('Error fetching product:', error);
@@ -462,12 +469,12 @@ export const updateProduct = async (
       where: { id },
       data: {
         name: validatedData.name,
+        slug: validatedData.slug,
         description: validatedData.description,
         basePrice: validatedData.basePrice,
         sku: validatedData.sku,
         categoryId: validatedData.categoryId,
         status: validatedData.status,
-        slug: validatedData.slug,
         updatedBy: req.user?.uid,
         variations: {
           deleteMany: {},
@@ -484,7 +491,9 @@ export const updateProduct = async (
             }
           })) || []
         },
-        variantCombinations: validatedData.combinations || []
+        variantCombinations: typeof validatedData.combinations === 'string'
+          ? validatedData.combinations
+          : JSON.stringify(validatedData.combinations || [])
       },
       include: {
         category: {
@@ -498,22 +507,22 @@ export const updateProduct = async (
             options: true
           }
         },
-        images: {
-          select: {
-            id: true,
-            url: true,
-            alt: true,
-            isPrimary: true
-          }
-        }
+        images: true
       }
     });
 
-    console.log('Product updated successfully:', updatedProduct.id);
+    // Format the response
+    const formattedProduct = {
+      ...updatedProduct,
+      variations: updatedProduct.variations || [],
+      variantCombinations: typeof updatedProduct.variantCombinations === 'string'
+        ? updatedProduct.variantCombinations
+        : JSON.stringify(updatedProduct.variantCombinations || [])
+    };
 
     return res.json({
       success: true,
-      data: updatedProduct
+      data: formattedProduct
     });
   } catch (error) {
     console.error('Error updating product:', error);
@@ -872,7 +881,8 @@ export const getPublicProductById = async (
     // Format the response
     const formattedProduct = {
       ...product,
-      combinations
+      variations: product.variations || [],
+      variantCombinations: combinations
     };
 
     return res.json({

@@ -36,7 +36,16 @@ const productBase = {
   categoryId: z.string().min(1, 'Category ID is required'),
   status: z.nativeEnum(ProductStatus).default(ProductStatus.DRAFT),
   variations: z.array(variationSchema).optional().nullable().default([]),
-  combinations: z.array(variantCombinationSchema).optional().nullable().default([])
+  combinations: z.union([
+    z.array(variantCombinationSchema),
+    z.string().transform(str => {
+      try {
+        return JSON.parse(str);
+      } catch {
+        return [];
+      }
+    })
+  ]).optional().nullable().default([])
 };
 
 export const createProductSchema = z.object({
