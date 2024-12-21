@@ -388,8 +388,18 @@ export class PaymentService {
       // Use platform-specific URLs
       const { redirectUrl, cancelUrl } = paymentConfig.ngenius[platform];
 
-      // Ensure the total is properly rounded to avoid floating point issues
-      const roundedTotal = Math.round(order.total * 100);
+      // Get the order total and ensure it's properly calculated
+      const orderTotal = order.total;
+      console.log('Order total breakdown:', {
+        subtotal: order.subtotal,
+        couponDiscount: order.couponDiscount || 0,
+        pointsValue: order.pointsValue || 0,
+        deliveryCharge: order.deliveryCharge || 0,
+        finalTotal: orderTotal
+      });
+
+      // Convert to cents and round to avoid floating point issues
+      const amountInCents = Math.round(orderTotal * 100);
 
       // Default store address for pickup orders
       const storeAddress = {
@@ -432,7 +442,7 @@ export class PaymentService {
         action: paymentConfig.ngenius.paymentAction,
         amount: {
           currencyCode: paymentConfig.ngenius.currency,
-          value: roundedTotal // This is already in cents
+          value: amountInCents
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
