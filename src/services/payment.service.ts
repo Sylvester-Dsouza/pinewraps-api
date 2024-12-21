@@ -388,6 +388,9 @@ export class PaymentService {
       // Use platform-specific URLs
       const { redirectUrl, cancelUrl } = paymentConfig.ngenius[platform];
 
+      // Ensure the total is properly rounded to avoid floating point issues
+      const roundedTotal = Math.round(order.total * 100);
+
       // Default store address for pickup orders
       const storeAddress = {
         address1: "Jumeirah 1",
@@ -429,7 +432,7 @@ export class PaymentService {
         action: paymentConfig.ngenius.paymentAction,
         amount: {
           currencyCode: paymentConfig.ngenius.currency,
-          value: Math.round(order.total * 100)
+          value: roundedTotal // This is already in cents
         },
         merchantOrderReference: order.orderNumber,
         merchantAttributes: {
