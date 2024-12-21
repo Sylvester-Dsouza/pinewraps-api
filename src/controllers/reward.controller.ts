@@ -17,14 +17,14 @@ const redeemPointsSchema = z.object({
 
 // Helper functions
 const TIER_THRESHOLDS = {
-  BRONZE: 0,      // Starting tier
+  GREEN: 0,      // Starting tier
   SILVER: 500,    // 500 AED in points
   GOLD: 1000,     // 1000 AED in points
   PLATINUM: 3000  // 3000 AED in points
 } as const;
 
 const TIER_POINT_RATES = {
-  BRONZE: 0.07,    // 7% points
+  GREEN: 0.07,    // 7% points
   SILVER: 0.12,    // 12% points
   GOLD: 0.15,      // 15% points
   PLATINUM: 0.20   // 20% points
@@ -34,12 +34,12 @@ const determineCustomerTier = (totalPoints: number): RewardTier => {
   if (totalPoints >= TIER_THRESHOLDS.PLATINUM) return 'PLATINUM';
   if (totalPoints >= TIER_THRESHOLDS.GOLD) return 'GOLD';
   if (totalPoints >= TIER_THRESHOLDS.SILVER) return 'SILVER';
-  return 'BRONZE';
+  return 'GREEN';
 };
 
 const calculatePointsForPurchase = (amount: number, tier: RewardTier): number => {
   const rate = TIER_POINT_RATES[tier];
-  return Math.floor(amount * rate);  // This will give 7 points for 100 AED for BRONZE tier
+  return Math.floor(amount * rate);  // This will give 7 points for 100 AED for GREEN tier
 };
 
 // Calculate AED value for points redemption (3 points = 1 AED)
@@ -129,7 +129,7 @@ export const RewardController = {
         where: { customerId: customer.id }
       });
 
-      const currentTier = currentRewards?.tier || 'BRONZE';
+      const currentTier = currentRewards?.tier || 'GREEN';
       const earnedPoints = calculatePointsForPurchase(amount, currentTier);
       
       // Calculate new total points and determine tier

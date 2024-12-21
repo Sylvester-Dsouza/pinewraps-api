@@ -249,7 +249,7 @@ export class OrderService {
         data: {
           customerId: customer.id,
           points: 0,
-          tier: 'BRONZE'
+          tier: 'GREEN'
         }
       });
     }
@@ -687,7 +687,7 @@ export class OrderService {
 
   private static calculatePoints = (total: number, tier: string): number => {
     const tierMultipliers = {
-      'BRONZE': 0.07,
+      'GREEN': 0.07,
       'SILVER': 0.12,
       'GOLD': 0.15,
       'PLATINUM': 0.20

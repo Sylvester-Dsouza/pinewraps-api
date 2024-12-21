@@ -29,7 +29,7 @@ export enum Emirates {
 }
 
 export enum RewardTier {
-  BRONZE = 'BRONZE',
+  GREEN = 'GREEN',
   SILVER = 'SILVER',
   GOLD = 'GOLD',
   PLATINUM = 'PLATINUM'
