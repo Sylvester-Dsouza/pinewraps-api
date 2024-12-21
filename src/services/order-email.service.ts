@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { Order, OrderItem, Customer } from '@prisma/client';
 
-// Using require for Brevo SDK //
+// Using require for Brevo SDK
 const SibApi = require('@sendinblue/client');
 
 interface OrderWithDetails extends Order {
