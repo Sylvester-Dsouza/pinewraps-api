@@ -780,12 +780,19 @@ export const getPublicProducts = async (
   next: NextFunction
 ) => {
   try {
-    console.log('Fetching public products...');
+    console.log('Fetching public products with query:', req.query);
     
+    const { categoryId, status } = req.query;
+
+    const where = {
+      status: status || 'ACTIVE',
+      ...(categoryId ? { categoryId: String(categoryId) } : {})
+    };
+
+    console.log('Database query:', where);
+
     const products = await prisma.product.findMany({
-      where: {
-        status: 'ACTIVE'
-      },
+      where,
       include: {
         category: {
           select: {
@@ -805,7 +812,8 @@ export const getPublicProducts = async (
       }
     });
 
-    console.log('Found products:', products.length);
+    console.log(`Found ${products.length} products${categoryId ? ` for category ${categoryId}` : ''}`);
+    console.log('Product categories:', products.map(p => ({ name: p.name, categoryId: p.categoryId })));
 
     if (!products || products.length === 0) {
       return res.json({
