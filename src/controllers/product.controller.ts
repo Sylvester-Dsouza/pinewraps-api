@@ -457,6 +457,34 @@ export const updateProduct = async (
     // Validate update data
     const validatedData = updateProductSchema.parse(req.body);
 
+    // Handle image deletions first
+    if (req.body.deletedImages && Array.isArray(req.body.deletedImages)) {
+      console.log('Deleting images:', req.body.deletedImages);
+      
+      // Delete images from Firebase and database
+      await Promise.all(
+        req.body.deletedImages.map(async (imageId: string) => {
+          const image = await prisma.productImage.findUnique({
+            where: { id: imageId }
+          });
+
+          if (image) {
+            // Delete from Firebase storage
+            try {
+              await deleteFromFirebase(image.url);
+            } catch (error) {
+              console.error(`Error deleting image from storage: ${image.url}`, error);
+            }
+
+            // Delete from database
+            await prisma.productImage.delete({
+              where: { id: imageId }
+            });
+          }
+        })
+      );
+    }
+
     // If name is being updated, generate new slug
     if (validatedData.name) {
       const baseSlug = generateSlug(validatedData.name);
