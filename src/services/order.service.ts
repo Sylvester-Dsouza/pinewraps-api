@@ -291,9 +291,10 @@ export class OrderService {
       data: {
         orderNumber: await OrderService.generateOrderNumber(),
         idempotencyKey,
-        status: OrderStatus.PENDING,  // Start with PENDING status
+        status: OrderStatus.PENDING,
         paymentMethod,
         paymentStatus: paymentMethod === PaymentMethod.CREDIT_CARD ? PaymentStatus.PENDING : PaymentStatus.CAPTURED,
+        
         // Customer Information
         customer: {
           connect: {
@@ -301,56 +302,69 @@ export class OrderService {
           }
         },
         customerPhone: phone,
+        
         // Points Information
-        pointsEarned: pointsToEarn, // Store calculated points
+        pointsEarned: pointsToEarn,
         pointsRedeemed: pointsRedeemed || 0,
-        pointsValue: (pointsRedeemed || 0) * 0.25, // Each point is worth 0.25 AED
+        pointsValue: wholePointsValue,
+        
         // Delivery Method
         deliveryMethod,
+        
         // Delivery Information
         deliveryDate: deliveryMethod === 'DELIVERY' ? new Date(deliveryDate + 'T00:00:00Z') : null,
         deliveryTimeSlot: deliveryMethod === 'DELIVERY' ? deliveryTimeSlot : null,
         deliveryInstructions: deliveryMethod === 'DELIVERY' ? deliveryInstructions : null,
         deliveryCharge: wholeDeliveryCharge,
+        
         // Pickup Information
         pickupDate: deliveryMethod === 'PICKUP' ? new Date(pickupDate + 'T00:00:00Z') : null,
         pickupTimeSlot: deliveryMethod === 'PICKUP' ? pickupTimeSlot : null,
         storeLocation: deliveryMethod === 'PICKUP' ? storeLocation : null,
+        
         // Address Information
         streetAddress: deliveryMethod === 'DELIVERY' ? streetAddress : null,
         apartment: deliveryMethod === 'DELIVERY' ? apartment : null,
-        emirate: deliveryMethod === 'DELIVERY' ? emirate : 'Dubai', // Set Dubai for pickup orders
-        city: deliveryMethod === 'DELIVERY' ? city : 'Dubai', // Set Dubai for pickup orders
+        emirate: deliveryMethod === 'DELIVERY' ? emirate : 'Dubai',
+        city: deliveryMethod === 'DELIVERY' ? city : 'Dubai',
         pincode: deliveryMethod === 'DELIVERY' ? pincode : null,
         country: 'United Arab Emirates',
+        
         // Totals
         subtotal: wholeSubtotal,
-        total: finalTotal, // Use the properly calculated and rounded total
+        total: finalTotal,
         couponDiscount,
-        pointsValue: wholePointsValue,
         deliveryCharge: wholeDeliveryCharge,
+        
         // Gift Information
-        isGift,
-        giftMessage,
-        giftRecipientName,
-        giftRecipientPhone,
+        isGift: isGift || false,
+        ...(isGift ? {
+          giftMessage: giftMessage || null,
+          giftRecipientName: giftRecipientName || null,
+          giftRecipientPhone: giftRecipientPhone || null,
+        } : {}),
+        
         // Admin Notes
-        adminNotes: notes,
+        adminNotes: notes || null,
+        
         // Coupon
-        coupon: couponId ? {
-          connect: {
-            id: couponId
+        ...(couponId ? {
+          coupon: {
+            connect: {
+              id: couponId
+            }
           }
-        } : undefined,
+        } : {}),
+        
         // Items
         items: {
           create: items.map(item => ({
             name: item.name,
             variant: item.variant || '',
             variations: item.variations || [],
-            price: item.price,
-            quantity: parseInt(item.quantity) || 1, // Ensure quantity is a number and has a fallback
-            cakeWriting: item.cakeWriting || ''
+            price: Math.floor(item.price),
+            quantity: parseInt(item.quantity.toString()) || 1,
+            cakeWriting: item.cakeWriting || null
           }))
         }
       },
