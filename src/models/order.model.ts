@@ -71,27 +71,29 @@ export const CreateOrderSchema = z.object({
   lastName: z.string(),
   email: z.string().email(),
   phone: z.string(),
+  idempotencyKey: z.string(),
   
   // Address Information (required for delivery)
-  streetAddress: z.string().optional(),
-  apartment: z.string().optional(),
-  emirate: z.string().optional(),
-  city: z.string().optional(),
-  pincode: z.string().optional(),
+  streetAddress: z.string().nullish(),
+  apartment: z.string().nullish(),
+  emirate: z.string(),
+  city: z.string().nullish(),
+  pincode: z.string().nullish(),
   country: z.string().optional().default('United Arab Emirates'),
   
   // Delivery/Pickup Information
   deliveryMethod: z.enum(['DELIVERY', 'PICKUP']),
+  deliveryCharge: z.number(),
   
   // For Delivery Orders
-  deliveryDate: z.string().optional(),
-  deliveryTimeSlot: z.string().optional(),
-  deliveryInstructions: z.string().optional(),
+  deliveryDate: z.string().nullish(),
+  deliveryTimeSlot: z.string().nullish(),
+  deliveryInstructions: z.string().nullish(),
   
   // For Pickup Orders
   pickupDate: z.string().nullish(),
   pickupTimeSlot: z.string().nullish(),
-  storeLocation: z.string().optional(),
+  storeLocation: z.string().nullish(),
 
   // Payment Information
   paymentMethod: z.nativeEnum(PaymentMethod),
@@ -102,15 +104,17 @@ export const CreateOrderSchema = z.object({
   total: z.number(),
   
   // Optional Information
-  notes: z.string().optional(),
+  notes: z.string().nullish(),
   isGift: z.boolean().optional().default(false),
-  giftMessage: z.string().optional(),
-  giftRecipientName: z.string().optional(),
-  giftRecipientPhone: z.string().optional(),
+  giftMessage: z.string().nullish(),
+  giftRecipientName: z.string().nullish(),
+  giftRecipientPhone: z.string().nullish(),
   
   // Points & Discounts
   pointsRedeemed: z.number().optional().default(0),
-  couponCode: z.string().optional()
+  pointsValue: z.number().optional().default(0),
+  couponCode: z.string().nullish(),
+  couponDiscount: z.number().optional().default(0)
 });
 
 export const OrderSchema = CreateOrderSchema.extend({
