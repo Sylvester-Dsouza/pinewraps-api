@@ -461,28 +461,42 @@ export const updateProduct = async (
     if (req.body.deletedImages && Array.isArray(req.body.deletedImages)) {
       console.log('Deleting images:', req.body.deletedImages);
       
-      // Delete images from Firebase and database
-      await Promise.all(
-        req.body.deletedImages.map(async (imageId: string) => {
-          const image = await prisma.productImage.findUnique({
-            where: { id: imageId }
-          });
-
-          if (image) {
-            // Delete from Firebase storage
-            try {
-              await deleteFromFirebase(image.url);
-            } catch (error) {
-              console.error(`Error deleting image from storage: ${image.url}`, error);
-            }
-
-            // Delete from database
-            await prisma.productImage.delete({
+      // Delete images from Firebase and database using a transaction
+      await prisma.$transaction(async (tx) => {
+        for (const imageId of req.body.deletedImages) {
+          try {
+            const image = await tx.productImage.findUnique({
               where: { id: imageId }
             });
+
+            if (image) {
+              console.log(`Found image to delete:`, image);
+              
+              try {
+                // Delete from Firebase storage first
+                await deleteFromFirebase(image.url);
+                console.log(`Deleted from Firebase: ${image.url}`);
+              } catch (error) {
+                console.error(`Error deleting from Firebase: ${image.url}`, error);
+                // Continue with database deletion even if Firebase fails
+                // The image might have been already deleted from Firebase
+              }
+              
+              // Delete from database
+              await tx.productImage.delete({
+                where: { id: imageId }
+              });
+              
+              console.log(`Successfully deleted image ${imageId} from database`);
+            } else {
+              console.warn(`Image ${imageId} not found in database`);
+            }
+          } catch (error) {
+            console.error(`Error processing image ${imageId}:`, error);
+            throw new ApiError(`Failed to delete image: ${(error as Error).message}`, 500);
           }
-        })
-      );
+        }
+      });
     }
 
     // If name is being updated, generate new slug

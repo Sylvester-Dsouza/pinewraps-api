@@ -87,10 +87,19 @@ export const deleteFromFirebase = async (fileUrl: string): Promise<void> => {
     console.log('Deleting file from Firebase:', fileUrl);
     const bucket = getBucket();
 
-    // Extract the file path from the URL
-    const fileName = fileUrl.includes(bucket.name) 
-      ? fileUrl.split(`${bucket.name}/`)[1]
-      : fileUrl;
+    // Extract the file path from the Firebase Storage URL
+    let fileName = '';
+    if (fileUrl.startsWith('https://firebasestorage.googleapis.com')) {
+      // Extract the path after /o/
+      const matches = fileUrl.match(/\/o\/([^?]+)/);
+      if (matches && matches[1]) {
+        fileName = decodeURIComponent(matches[1]);
+      } else {
+        throw new ApiError('Invalid Firebase Storage URL format', 400);
+      }
+    } else {
+      fileName = fileUrl;
+    }
 
     console.log('Extracted file name:', fileName);
 
@@ -102,11 +111,13 @@ export const deleteFromFirebase = async (fileUrl: string): Promise<void> => {
       await file.delete();
       console.log('File deleted successfully');
     } else {
-      console.log('File does not exist, skipping deletion');
+      console.warn('File does not exist in storage:', fileName);
+      // Don't throw an error if file doesn't exist, as it might have been deleted already
     }
   } catch (error) {
     const err = error as Error;
     console.error('Error deleting file from Firebase:', {
+      url: fileUrl,
       message: err.message,
       stack: err.stack,
       name: err.name
