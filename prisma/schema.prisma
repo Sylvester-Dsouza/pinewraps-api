@@ -209,6 +209,11 @@ model Category {
   createdBy   String?
   updatedBy   String?
   products    Product[]
+  parentId    String?
+  parent      Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  children    Category[] @relation("SubCategories")
+  
+  @@index([parentId])
 }
 
 model Product {
