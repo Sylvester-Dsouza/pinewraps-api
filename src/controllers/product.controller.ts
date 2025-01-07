@@ -461,41 +461,45 @@ export const updateProduct = async (
     if (req.body.deletedImages && Array.isArray(req.body.deletedImages)) {
       console.log('Deleting images:', req.body.deletedImages);
       
-      // Delete images from Firebase and database using a transaction
+      // Delete images from Firebase and database using a transaction with increased timeout
       await prisma.$transaction(async (tx) => {
-        for (const imageId of req.body.deletedImages) {
-          try {
-            const image = await tx.productImage.findUnique({
-              where: { id: imageId }
-            });
-
-            if (image) {
-              console.log(`Found image to delete:`, image);
-              
-              try {
-                // Delete from Firebase storage first
-                await deleteFromFirebase(image.url);
-                console.log(`Deleted from Firebase: ${image.url}`);
-              } catch (error) {
-                console.error(`Error deleting from Firebase: ${image.url}`, error);
-                // Continue with database deletion even if Firebase fails
-                // The image might have been already deleted from Firebase
-              }
-              
-              // Delete from database
-              await tx.productImage.delete({
-                where: { id: imageId }
-              });
-              
-              console.log(`Successfully deleted image ${imageId} from database`);
-            } else {
-              console.warn(`Image ${imageId} not found in database`);
+        // First, fetch all images that need to be deleted
+        const imagesToDelete = await tx.productImage.findMany({
+          where: {
+            id: {
+              in: req.body.deletedImages
             }
-          } catch (error) {
-            console.error(`Error processing image ${imageId}:`, error);
-            throw new ApiError(`Failed to delete image: ${(error as Error).message}`, 500);
           }
+        });
+
+        console.log(`Found ${imagesToDelete.length} images to delete`);
+
+        // Delete from Firebase in parallel
+        await Promise.allSettled(
+          imagesToDelete.map(async (image) => {
+            try {
+              await deleteFromFirebase(image.url);
+              console.log(`Deleted from Firebase: ${image.url}`);
+            } catch (error) {
+              console.error(`Error deleting from Firebase: ${image.url}`, error);
+              // Continue with database deletion even if Firebase fails
+            }
+          })
+        );
+
+        // Delete all images from database in a single query
+        if (imagesToDelete.length > 0) {
+          await tx.productImage.deleteMany({
+            where: {
+              id: {
+                in: imagesToDelete.map(img => img.id)
+              }
+            }
+          });
+          console.log(`Successfully deleted ${imagesToDelete.length} images from database`);
         }
+      }, {
+        timeout: 10000 // Increase timeout to 10 seconds
       });
     }
 
