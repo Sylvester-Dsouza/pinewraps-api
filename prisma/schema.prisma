@@ -233,6 +233,10 @@ model Product {
   images              ProductImage[]
   variations          ProductVariation[]
   variantCombinations Json?              @default("[]")
+  // SEO Fields - simplified
+  metaTitle           String?            @db.VarChar(60)
+  metaDescription     String?            @db.VarChar(160)
+  metaKeywords        String?            
 }
 
 model ProductImage {

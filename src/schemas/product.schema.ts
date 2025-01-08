@@ -45,7 +45,11 @@ const productBase = {
         return [];
       }
     })
-  ]).optional().nullable().default([])
+  ]).optional().nullable().default([]),
+  // SEO fields
+  metaTitle: z.string().max(60, 'Meta title must be less than 60 characters').optional().nullable(),
+  metaDescription: z.string().max(160, 'Meta description must be less than 160 characters').optional().nullable(),
+  metaKeywords: z.string().optional().nullable(),
 };
 
 export const createProductSchema = z.object({

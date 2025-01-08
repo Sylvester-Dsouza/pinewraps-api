@@ -5,6 +5,36 @@ import slugify from 'slugify';
 
 const router = express.Router();
 
+// Get all categories for admin
+router.get('/all', requireAuth, async (req, res, next) => {
+  try {
+    const categories = await prisma.category.findMany({
+      orderBy: {
+        createdAt: 'desc'
+      },
+      include: {
+        parent: true,
+        children: true,
+        _count: {
+          select: {
+            products: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      success: true,
+      data: categories.map(category => ({
+        ...category,
+        productCount: category._count.products
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Public endpoint to get active categories
 router.get('/public', async (req, res, next) => {
   try {
@@ -36,7 +66,7 @@ router.get('/public', async (req, res, next) => {
   }
 });
 
-// Get all categories
+// Get categories with pagination
 router.get('/', requireAuth, async (req, res, next) => {
   try {
     const page = parseInt(req.query.page as string) || 1;
@@ -89,7 +119,10 @@ router.get('/', requireAuth, async (req, res, next) => {
       }
     });
   } catch (error) {
-    next(new ApiError('Failed to fetch categories', 500));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch categories' 
+    });
   }
 });
 
@@ -103,19 +136,28 @@ router.get('/:id', requireAuth, async (req, res, next) => {
     });
 
     if (!category) {
-      return next(new ApiError('Category not found', 404));
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Category not found' 
+      });
     }
 
-    res.json(category);
+    res.json({
+      success: true,
+      data: category
+    });
   } catch (error) {
-    next(new ApiError('Failed to fetch category', 500));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to fetch category' 
+    });
   }
 });
 
 // Create category
 router.post('/', requireAuth, async (req, res, next) => {
   try {
-    const { name, description, isActive = true } = req.body;
+    const { name, description, isActive = true, parentId } = req.body;
 
     if (!name) {
       return res.status(400).json({
@@ -127,35 +169,39 @@ router.post('/', requireAuth, async (req, res, next) => {
     // Generate slug from name
     const slug = slugify(name, { lower: true });
 
-    // Check if category with same slug exists
-    const existingCategory = await prisma.category.findUnique({
-      where: { slug }
-    });
-
-    if (existingCategory) {
-      return res.status(400).json({
-        success: false,
-        message: 'Category with this name already exists'
+    // Check if parent category exists if parentId is provided
+    if (parentId) {
+      const parentCategory = await prisma.category.findUnique({
+        where: { id: parentId }
       });
+
+      if (!parentCategory) {
+        return res.status(400).json({
+          success: false,
+          message: 'Parent category not found'
+        });
+      }
     }
 
     const category = await prisma.category.create({
       data: {
         name,
-        slug,
         description,
+        slug,
         isActive,
-        createdBy: req.user?.uid,
-        updatedBy: req.user?.uid,
+        parentId
       }
     });
 
-    res.json({
+    res.status(201).json({
       success: true,
       data: category
     });
   } catch (error) {
-    next(new ApiError('Failed to create category', 500));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to create category' 
+    });
   }
 });
 
@@ -163,20 +209,35 @@ router.post('/', requireAuth, async (req, res, next) => {
 router.patch('/:id', requireAuth, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, description, isActive } = req.body;
+    const { name, description, isActive, parentId } = req.body;
 
-    const updateData: any = {};
-    if (name) {
-      updateData.name = name;
-      updateData.slug = slugify(name, { lower: true });
+    const updates: any = {};
+    if (name !== undefined) {
+      updates.name = name;
+      updates.slug = slugify(name, { lower: true });
     }
-    if (description !== undefined) updateData.description = description;
-    if (isActive !== undefined) updateData.isActive = isActive;
-    updateData.updatedBy = req.user?.uid;
+    if (description !== undefined) updates.description = description;
+    if (isActive !== undefined) updates.isActive = isActive;
+    if (parentId !== undefined) {
+      // Check if parent category exists
+      if (parentId) {
+        const parentCategory = await prisma.category.findUnique({
+          where: { id: parentId }
+        });
+
+        if (!parentCategory) {
+          return res.status(400).json({
+            success: false,
+            message: 'Parent category not found'
+          });
+        }
+      }
+      updates.parentId = parentId;
+    }
 
     const category = await prisma.category.update({
       where: { id },
-      data: updateData
+      data: updates
     });
 
     res.json({
@@ -184,7 +245,10 @@ router.patch('/:id', requireAuth, async (req, res, next) => {
       data: category
     });
   } catch (error) {
-    next(new ApiError('Failed to update category', 500));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to update category' 
+    });
   }
 });
 
@@ -202,7 +266,10 @@ router.delete('/:id', requireAuth, async (req, res, next) => {
       message: 'Category deleted successfully'
     });
   } catch (error) {
-    next(new ApiError('Failed to delete category', 500));
+    res.status(500).json({ 
+      success: false, 
+      message: 'Failed to delete category' 
+    });
   }
 });
 

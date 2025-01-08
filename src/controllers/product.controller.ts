@@ -496,83 +496,65 @@ export const updateProduct = async (
               }
             }
           });
-          console.log(`Successfully deleted ${imagesToDelete.length} images from database`);
         }
-      }, {
-        timeout: 10000 // Increase timeout to 10 seconds
       });
     }
 
-    // If name is being updated, generate new slug
-    if (validatedData.name) {
-      const baseSlug = generateSlug(validatedData.name);
-      validatedData.slug = await ensureUniqueSlug(baseSlug, id);
-      console.log('Generated new slug:', validatedData.slug);
-    }
+    // Prepare update data
+    const updateData = {
+      name: validatedData.name,
+      description: validatedData.description,
+      basePrice: validatedData.basePrice,
+      sku: validatedData.sku,
+      categoryId: validatedData.categoryId,
+      status: validatedData.status,
+      updatedBy: req.user?.uid,
+      variations: validatedData.variations ? {
+        deleteMany: {},
+        create: validatedData.variations.map(variation => ({
+          id: nanoid(),
+          type: variation.type,
+          options: {
+            create: variation.options.map(option => ({
+              id: nanoid(),
+              value: option.value,
+              priceAdjustment: option.priceAdjustment || 0,
+              stock: option.stock || 0
+            }))
+          }
+        }))
+      } : undefined,
+      // Add SEO fields to update data
+      metaTitle: validatedData.metaTitle,
+      metaDescription: validatedData.metaDescription,
+      metaKeywords: validatedData.metaKeywords,
+    };
 
-    // Update the product
+    // Update product
     const updatedProduct = await prisma.product.update({
       where: { id },
-      data: {
-        name: validatedData.name,
-        slug: validatedData.slug,
-        description: validatedData.description,
-        basePrice: validatedData.basePrice,
-        sku: validatedData.sku,
-        categoryId: validatedData.categoryId,
-        status: validatedData.status,
-        updatedBy: req.user?.uid,
-        variations: {
-          deleteMany: {},
-          create: validatedData.variations?.map(variation => ({
-            id: nanoid(),
-            type: variation.type,
-            options: {
-              create: variation.options?.map(option => ({
-                id: nanoid(),
-                value: option.value,
-                priceAdjustment: option.priceAdjustment || 0,
-                stock: option.stock || 0
-              })) || []
-            }
-          })) || []
-        },
-        variantCombinations: typeof validatedData.combinations === 'string'
-          ? validatedData.combinations
-          : JSON.stringify(validatedData.combinations || [])
-      },
+      data: updateData,
       include: {
-        category: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
+        category: true,
+        images: true,
         variations: {
           include: {
             options: true
           }
-        },
-        images: true
+        }
       }
     });
 
-    // Format the response
-    const formattedProduct = {
-      ...updatedProduct,
-      variations: updatedProduct.variations || [],
-      variantCombinations: typeof updatedProduct.variantCombinations === 'string'
-        ? updatedProduct.variantCombinations
-        : JSON.stringify(updatedProduct.variantCombinations || [])
-    };
+    console.log('Product updated successfully:', updatedProduct);
 
     return res.json({
       success: true,
-      data: formattedProduct
+      data: updatedProduct
     });
+
   } catch (error) {
     console.error('Error updating product:', error);
-    return next(new ApiError('Failed to update product', 500));
+    next(error);
   }
 };
 
