@@ -105,17 +105,6 @@ export const updateProductSchema = z.object({
       }
     })
   ]).optional().nullable(),
-  variantCombinations: z.union([
-    z.array(variantCombinationSchema),
-    z.string().transform((str) => {
-      try {
-        const parsed = JSON.parse(str);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    })
-  ]).optional().nullable(),
   combinations: z.union([
     z.array(variantCombinationSchema),
     z.string().transform((str) => {
@@ -127,8 +116,35 @@ export const updateProductSchema = z.object({
       }
     })
   ]).optional().nullable(),
-  existingImages: z.array(z.string()).optional(),
-  deletedImages: z.array(z.string()).optional()
+  existingImages: z.union([
+    z.array(z.object({
+      id: z.string(),
+      url: z.string(),
+      isPrimary: z.boolean().optional()
+    })),
+    z.string().transform((str) => {
+      try {
+        const parsed = JSON.parse(str);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })
+  ]).optional().nullable(),
+  deletedImages: z.union([
+    z.array(z.string()),
+    z.string().transform((str) => {
+      try {
+        const parsed = JSON.parse(str);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })
+  ]).optional().nullable(),
+  metaTitle: z.string().max(60, 'Meta title must be less than 60 characters').optional().nullable(),
+  metaDescription: z.string().max(160, 'Meta description must be less than 160 characters').optional().nullable(),
+  metaKeywords: z.string().optional().nullable(),
 }).passthrough();
 
 export const productFilterSchema = z.object({

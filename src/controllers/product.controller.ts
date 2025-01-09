@@ -171,18 +171,38 @@ export const createProduct = async (
           images: uploadedImages.map(img => ({ id: img.id, url: img.url }))
         });
 
-        // Create image records in the database
-        console.log('Creating database records for images...');
-        await prisma.productImage.createMany({
-          data: uploadedImages.map(image => ({
-            id: generateId(),
-            productId: product.id,
-            url: image.url,
-            alt: image.alt || undefined,
-            isPrimary: false
-          }))
+        // Save image records to database
+        const existingImages = await prisma.productImage.findMany({
+          where: { productId: product.id }
         });
-        console.log('Database records created successfully');
+
+        const imageRecords = await prisma.$transaction(async (tx) => {
+          // If this is the first image being uploaded, make it primary
+          const shouldBePrimary = existingImages.length === 0;
+
+          // If we're making this primary, set all other images to non-primary first
+          if (shouldBePrimary) {
+            await tx.productImage.updateMany({
+              where: { productId: product.id },
+              data: { isPrimary: false }
+            });
+          }
+
+          // Create the new image records
+          const records = await tx.productImage.createMany({
+            data: uploadedImages.map((image, index) => ({
+              id: generateId(),
+              productId: product.id,
+              url: image.url,
+              alt: image.alt || undefined,
+              isPrimary: shouldBePrimary && index === 0 // Only first image of first upload is primary
+            }))
+          });
+
+          return records;
+        });
+
+        console.log('Created image records:', imageRecords);
 
         // Get the updated product with images
         const updatedProduct = await prisma.product.findUnique({
@@ -500,6 +520,51 @@ export const updateProduct = async (
       });
     }
 
+    // Handle existing images and their order
+    if (req.body.existingImages) {
+      try {
+        const existingImages = typeof req.body.existingImages === 'string' 
+          ? JSON.parse(req.body.existingImages) 
+          : req.body.existingImages;
+
+        console.log('Updating image order:', existingImages);
+
+        // Update image order and primary status in a transaction
+        await prisma.$transaction(async (tx) => {
+          // First set all images as non-primary
+          await tx.productImage.updateMany({
+            where: { productId: id },
+            data: { isPrimary: false }
+          });
+
+          // Then update each image's primary status based on the order
+          for (const [index, image] of existingImages.entries()) {
+            if (!image.id) {
+              console.error('Missing image ID:', image);
+              continue;
+            }
+
+            console.log(`Updating image ${image.id} to isPrimary=${index === 0}`);
+            
+            await tx.productImage.update({
+              where: { 
+                id: image.id,
+                productId: id
+              },
+              data: { 
+                isPrimary: index === 0,
+                // Add order field to maintain sequence
+                order: index
+              }
+            });
+          }
+        });
+      } catch (error) {
+        console.error('Error updating image order:', error);
+        throw new ApiError('Failed to update image order', 500);
+      }
+    }
+
     // Prepare update data
     const updateData = {
       name: validatedData.name,
@@ -536,7 +601,12 @@ export const updateProduct = async (
       data: updateData,
       include: {
         category: true,
-        images: true,
+        images: {
+          orderBy: [
+            { order: 'asc' }, // Order by sequence first
+            { isPrimary: 'desc' } // Then by primary status
+          ]
+        },
         variations: {
           include: {
             options: true
@@ -770,14 +840,34 @@ export const uploadProductImage = async (
     console.log('Successfully uploaded images:', uploadedImages);
 
     // Save image records to database
-    const imageRecords = await prisma.productImage.createMany({
-      data: uploadedImages.map(image => ({
-        id: generateId(),
-        productId,
-        url: image.url,
-        alt: image.originalname || undefined,
-        isPrimary: false
-      }))
+    const existingImages = await prisma.productImage.findMany({
+      where: { productId }
+    });
+
+    const imageRecords = await prisma.$transaction(async (tx) => {
+      // If this is the first image being uploaded, make it primary
+      const shouldBePrimary = existingImages.length === 0;
+
+      // If we're making this primary, set all other images to non-primary first
+      if (shouldBePrimary) {
+        await tx.productImage.updateMany({
+          where: { productId },
+          data: { isPrimary: false }
+        });
+      }
+
+      // Create the new image records
+      const records = await tx.productImage.createMany({
+        data: uploadedImages.map((image, index) => ({
+          id: generateId(),
+          productId,
+          url: image.url,
+          alt: image.originalname || undefined,
+          isPrimary: shouldBePrimary && index === 0 // Only first image of first upload is primary
+        }))
+      });
+
+      return records;
     });
 
     console.log('Created image records:', imageRecords);
@@ -798,6 +888,59 @@ export const uploadProductImage = async (
     } else {
       next(error);
     }
+  }
+};
+
+// Reorder product images
+export const reorderProductImages = async (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const { id: productId } = req.params;
+    const { imageOrder } = req.body;
+
+    if (!Array.isArray(imageOrder)) {
+      throw new ApiError('Image order must be an array', 400);
+    }
+
+    // Start a transaction to ensure all updates are atomic
+    await prisma.$transaction(async (tx) => {
+      // First, set all images as non-primary
+      await tx.productImage.updateMany({
+        where: { productId },
+        data: { isPrimary: false }
+      });
+
+      // Update each image's primary status based on order
+      // First image in the array becomes primary
+      for (const [index, imageId] of imageOrder.entries()) {
+        await tx.productImage.update({
+          where: { id: imageId },
+          data: { isPrimary: index === 0 }
+        });
+      }
+    });
+
+    // Fetch updated product images
+    const updatedImages = await prisma.productImage.findMany({
+      where: { productId },
+      orderBy: [
+        { isPrimary: 'desc' },
+        { createdAt: 'asc' }
+      ]
+    });
+
+    return res.json({
+      success: true,
+      message: 'Images reordered successfully',
+      data: updatedImages
+    });
+
+  } catch (error) {
+    console.error('Error reordering images:', error);
+    next(error);
   }
 };
 

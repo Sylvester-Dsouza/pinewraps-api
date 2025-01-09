@@ -41,6 +41,16 @@ export enum RewardHistoryType {
   FAILED = 'FAILED'
 }
 
+export enum PaymentStatus {
+  PENDING = 'PENDING',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  REFUNDED = 'REFUNDED',
+  AUTHORIZED = 'AUTHORIZED',
+  CAPTURED = 'CAPTURED',
+  CANCELLED = 'CANCELLED'
+}
+
 export const DeliveryType = {
   DELIVERY: 'DELIVERY',
   PICKUP: 'PICKUP'
@@ -65,7 +75,8 @@ export const AddressSchema = z.object({
   country: z.string().optional().default('United Arab Emirates')
 });
 
-export const CreateOrderSchema = z.object({
+// Base schemas for common fields
+const BaseOrderFields = {
   // Customer Information
   firstName: z.string(),
   lastName: z.string(),
@@ -73,28 +84,6 @@ export const CreateOrderSchema = z.object({
   phone: z.string(),
   idempotencyKey: z.string(),
   
-  // Address Information (required for delivery)
-  streetAddress: z.string().nullish(),
-  apartment: z.string().nullish(),
-  emirate: z.string(),
-  city: z.string().nullish(),
-  pincode: z.string().nullish(),
-  country: z.string().optional().default('United Arab Emirates'),
-  
-  // Delivery/Pickup Information
-  deliveryMethod: z.enum(['DELIVERY', 'PICKUP']),
-  deliveryCharge: z.number(),
-  
-  // For Delivery Orders
-  deliveryDate: z.string().nullish(),
-  deliveryTimeSlot: z.string().nullish(),
-  deliveryInstructions: z.string().nullish(),
-  
-  // For Pickup Orders
-  pickupDate: z.string().nullish(),
-  pickupTimeSlot: z.string().nullish(),
-  storeLocation: z.string().nullish(),
-
   // Payment Information
   paymentMethod: z.nativeEnum(PaymentMethod),
   
@@ -103,24 +92,65 @@ export const CreateOrderSchema = z.object({
   subtotal: z.number(),
   total: z.number(),
   
-  // Optional Information
-  notes: z.string().nullish(),
-  isGift: z.boolean().optional().default(false),
-  giftMessage: z.string().nullish(),
-  giftRecipientName: z.string().nullish(),
-  giftRecipientPhone: z.string().nullish(),
+  // Basic Information
+  emirate: z.string(),
   
-  // Points & Discounts
-  pointsRedeemed: z.number().optional().default(0),
-  pointsValue: z.number().optional().default(0),
-  couponCode: z.string().nullish(),
-  couponDiscount: z.number().optional().default(0)
+  // Gift Information
+  isGift: z.boolean().optional(),
+  giftMessage: z.string().optional(),
+  giftRecipientName: z.string().optional(),
+  giftRecipientPhone: z.string().optional(),
+
+  // Points Redemption
+  useRewardPoints: z.boolean().optional(),
+  pointsRedeemed: z.number().optional(),
+  pointsDiscount: z.number().optional(),
+
+  // Coupon
+  couponCode: z.string().optional(),
+  couponDiscount: z.number().optional()
+} as const;
+
+// Schema for delivery orders
+const DeliveryOrderSchema = z.object({
+  ...BaseOrderFields,
+  deliveryMethod: z.literal('DELIVERY'),
+  deliveryCharge: z.number(),
+  
+  // Address Information
+  streetAddress: z.string(),
+  apartment: z.string().optional(),
+  city: z.string(),
+  pincode: z.string().optional(),
+  country: z.string().optional().default('United Arab Emirates'),
+  
+  // Delivery Information
+  deliveryDate: z.string(),
+  deliveryTimeSlot: z.string(),
+  deliveryInstructions: z.string().optional(),
 });
 
-export const OrderSchema = CreateOrderSchema.extend({
+// Schema for pickup orders
+const PickupOrderSchema = z.object({
+  ...BaseOrderFields,
+  deliveryMethod: z.literal('PICKUP'),
+  deliveryCharge: z.null(),
+  
+  // Pickup Information
+  pickupDate: z.string(),
+  pickupTimeSlot: z.string(),
+  storeLocation: z.string(),
+});
+
+export const CreateOrderSchema = z.discriminatedUnion('deliveryMethod', [
+  DeliveryOrderSchema,
+  PickupOrderSchema
+]);
+
+// Extended schemas with additional fields
+const DeliveryOrderSchemaWithId = DeliveryOrderSchema.extend({
   id: z.string(),
   userId: z.string(),
-  customerId: z.string().optional(),
   status: z.nativeEnum(OrderStatus),
   createdAt: z.date(),
   updatedAt: z.date(),
@@ -129,9 +159,29 @@ export const OrderSchema = CreateOrderSchema.extend({
   giftWrapCharge: z.number().optional(),
   discountAmount: z.number().optional(),
   adminNotes: z.string().optional(),
-  paymentStatus: z.enum(['PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'AUTHORIZED', 'CAPTURED', 'CANCELLED']),
+  paymentStatus: z.nativeEnum(PaymentStatus),
   paymentId: z.string().optional()
 });
+
+const PickupOrderSchemaWithId = PickupOrderSchema.extend({
+  id: z.string(),
+  userId: z.string(),
+  status: z.nativeEnum(OrderStatus),
+  createdAt: z.date(),
+  updatedAt: z.date(),
+  orderNumber: z.string().optional(),
+  pointsEarned: z.number().optional(),
+  giftWrapCharge: z.number().optional(),
+  discountAmount: z.number().optional(),
+  adminNotes: z.string().optional(),
+  paymentStatus: z.nativeEnum(PaymentStatus),
+  paymentId: z.string().optional()
+});
+
+export const OrderSchema = z.discriminatedUnion('deliveryMethod', [
+  DeliveryOrderSchemaWithId,
+  PickupOrderSchemaWithId
+]);
 
 // Query schemas
 export const GetOrdersQuerySchema = z.object({

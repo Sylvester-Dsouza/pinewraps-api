@@ -9,7 +9,8 @@ import {
   uploadProductImage,
   getPublicProducts,
   getPublicProductById,
-  getProductAnalytics
+  getProductAnalytics,
+  reorderProductImages
 } from '../controllers/product.controller';
 import { requireAuth } from '../middleware/auth';
 import { parseFormData } from '../middleware/parse-form-data';
@@ -116,6 +117,12 @@ router.patch('/:id',
   upload.array('images', 5),
   parseFormData(),
   updateMiddleware
+);
+
+// Reorder product images
+router.post('/:id/media/reorder', 
+  requireAuth,
+  reorderProductImages
 );
 
 // Delete product
