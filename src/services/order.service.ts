@@ -337,12 +337,17 @@ export class OrderService {
         deliveryCharge: wholeDeliveryCharge,
         
         // Gift Information
-        isGift: isGift || false,
         ...(isGift ? {
+          isGift: true,
           giftMessage: giftMessage || null,
           giftRecipientName: giftRecipientName || null,
           giftRecipientPhone: giftRecipientPhone || null,
-        } : {}),
+        } : {
+          isGift: false,
+          giftMessage: null,
+          giftRecipientName: null,
+          giftRecipientPhone: null,
+        }),
         
         // Admin Notes
         adminNotes: notes || null,

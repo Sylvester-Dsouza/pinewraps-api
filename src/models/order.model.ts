@@ -76,70 +76,51 @@ export const AddressSchema = z.object({
 });
 
 // Base schemas for common fields
-const BaseOrderFields = {
-  // Customer Information
+const BaseOrderSchema = z.object({
+  idempotencyKey: z.string().optional(),
   firstName: z.string(),
   lastName: z.string(),
   email: z.string().email(),
   phone: z.string(),
-  idempotencyKey: z.string(),
-  
-  // Payment Information
   paymentMethod: z.nativeEnum(PaymentMethod),
-  
-  // Order Details
-  items: z.array(OrderItemSchema),
+  items: z.array(z.object({
+    name: z.string(),
+    variant: z.string(),
+    price: z.number(),
+    quantity: z.number(),
+    cakeWriting: z.string().nullable()
+  })),
   subtotal: z.number(),
-  total: z.number(),
-  
-  // Basic Information
-  emirate: z.string(),
-  
-  // Gift Information
-  isGift: z.boolean().optional(),
-  giftMessage: z.string().optional(),
-  giftRecipientName: z.string().optional(),
-  giftRecipientPhone: z.string().optional(),
-
-  // Points Redemption
-  useRewardPoints: z.boolean().optional(),
-  pointsRedeemed: z.number().optional(),
-  pointsDiscount: z.number().optional(),
-
-  // Coupon
-  couponCode: z.string().optional(),
-  couponDiscount: z.number().optional()
-} as const;
+  isGift: z.boolean().default(false),
+  giftMessage: z.string().nullable(),
+  giftRecipientName: z.string().nullable(),
+  giftRecipientPhone: z.string().nullable(),
+  notes: z.string().nullable(),
+  couponCode: z.string().nullable(),
+  pointsRedeemed: z.number().default(0)
+});
 
 // Schema for delivery orders
-const DeliveryOrderSchema = z.object({
-  ...BaseOrderFields,
+const DeliveryOrderSchema = BaseOrderSchema.extend({
   deliveryMethod: z.literal('DELIVERY'),
-  deliveryCharge: z.number(),
-  
-  // Address Information
-  streetAddress: z.string(),
-  apartment: z.string().optional(),
-  city: z.string(),
-  pincode: z.string().optional(),
-  country: z.string().optional().default('United Arab Emirates'),
-  
-  // Delivery Information
   deliveryDate: z.string(),
   deliveryTimeSlot: z.string(),
-  deliveryInstructions: z.string().optional(),
+  deliveryInstructions: z.string().nullable(),
+  streetAddress: z.string(),
+  apartment: z.string(),
+  emirate: z.string(),
+  city: z.string(),
+  pincode: z.string(),
+  deliveryCharge: z.number(),
 });
 
 // Schema for pickup orders
-const PickupOrderSchema = z.object({
-  ...BaseOrderFields,
+const PickupOrderSchema = BaseOrderSchema.extend({
   deliveryMethod: z.literal('PICKUP'),
-  deliveryCharge: z.null(),
-  
-  // Pickup Information
   pickupDate: z.string(),
   pickupTimeSlot: z.string(),
   storeLocation: z.string(),
+  deliveryCharge: z.null(),
 });
 
 export const CreateOrderSchema = z.discriminatedUnion('deliveryMethod', [
