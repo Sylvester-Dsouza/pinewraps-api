@@ -308,13 +308,10 @@ export class OrderService {
         pointsRedeemed: pointsRedeemed || 0,
         pointsValue: wholePointsValue,
         
-        // Delivery Method
-        deliveryMethod,
-        
         // Delivery Information
+        deliveryMethod,
         deliveryDate: deliveryMethod === 'DELIVERY' ? new Date(deliveryDate + 'T00:00:00Z') : null,
         deliveryTimeSlot: deliveryMethod === 'DELIVERY' ? deliveryTimeSlot : null,
-        deliveryInstructions: deliveryMethod === 'DELIVERY' ? deliveryInstructions : null,
         deliveryCharge: wholeDeliveryCharge,
         
         // Pickup Information
@@ -325,8 +322,8 @@ export class OrderService {
         // Address Information
         streetAddress: deliveryMethod === 'DELIVERY' ? streetAddress : null,
         apartment: deliveryMethod === 'DELIVERY' ? apartment : null,
-        emirate: deliveryMethod === 'DELIVERY' ? emirate : 'Dubai',
-        city: deliveryMethod === 'DELIVERY' ? city : 'Dubai',
+        emirate: deliveryMethod === 'DELIVERY' ? emirate : null,
+        city: deliveryMethod === 'DELIVERY' ? city : null,
         pincode: deliveryMethod === 'DELIVERY' ? pincode : null,
         country: 'United Arab Emirates',
         
@@ -334,23 +331,29 @@ export class OrderService {
         subtotal: wholeSubtotal,
         total: finalTotal,
         couponDiscount,
-        deliveryCharge: wholeDeliveryCharge,
         
         // Gift Information
+        isGift,
         ...(isGift ? {
-          isGift: true,
-          giftMessage: giftMessage || null,
-          giftRecipientName: giftRecipientName || null,
-          giftRecipientPhone: giftRecipientPhone || null,
-        } : {
-          isGift: false,
-          giftMessage: null,
-          giftRecipientName: null,
-          giftRecipientPhone: null,
-        }),
+          giftMessage,
+          giftRecipientName,
+          giftRecipientPhone,
+        } : {}),
         
         // Admin Notes
         adminNotes: notes || null,
+        
+        // Items
+        items: {
+          create: items.map(item => ({
+            name: item.name,
+            variant: item.variant || '',
+            variations: item.variations || [],
+            price: item.price,
+            quantity: item.quantity,
+            cakeWriting: item.cakeWriting || null
+          }))
+        },
         
         // Coupon
         ...(couponId ? {
@@ -359,19 +362,7 @@ export class OrderService {
               id: couponId
             }
           }
-        } : {}),
-        
-        // Items
-        items: {
-          create: items.map(item => ({
-            name: item.name,
-            variant: item.variant || '',
-            variations: item.variations || [],
-            price: Math.floor(item.price),
-            quantity: parseInt(item.quantity.toString()) || 1,
-            cakeWriting: item.cakeWriting || null
-          }))
-        }
+        } : {})
       },
       include: {
         items: true,

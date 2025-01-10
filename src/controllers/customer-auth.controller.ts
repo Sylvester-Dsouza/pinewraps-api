@@ -238,38 +238,22 @@ export const customerAuth = {
           where: { firebaseUid: decodedToken.uid }
         });
 
-        if (!customer) {
-          // If not found by UID, check by email to handle migration cases
+        if (!customer && decodedToken.email) {
+          // If not found by UID and email exists, check by email
           console.log('Looking for existing customer with email:', decodedToken.email);
           customer = await prisma.customer.findUnique({
             where: { email: decodedToken.email }
           });
 
           if (customer) {
-            // If found by email but different UID, this is a different account
-            console.log('Found customer with same email but different UID, creating new account');
-            const randomSuffix = Math.random().toString(36).substring(2, 7);
-            const newEmail = `${decodedToken.email.split('@')[0]}+${randomSuffix}@${decodedToken.email.split('@')[1]}`;
-            
-            customer = await prisma.customer.create({
+            // Update existing customer with Firebase UID
+            console.log('Updating existing customer with Firebase UID');
+            customer = await prisma.customer.update({
+              where: { id: customer.id },
               data: {
-                email: newEmail,
-                firstName: decodedToken.given_name || decodedToken.name?.split(' ')[0] || '',
-                lastName: decodedToken.family_name || decodedToken.name?.split(' ').slice(1).join(' ') || '',
-                phone: decodedToken.phone_number || null,
                 firebaseUid: decodedToken.uid,
                 provider: provider as AuthProvider,
-                isEmailVerified: decodedToken.email_verified || false,
-                reward: {
-                  create: {
-                    points: 0,
-                    totalPoints: 0,
-                    tier: 'GREEN'
-                  }
-                }
-              },
-              include: {
-                reward: true
+                isEmailVerified: decodedToken.email_verified || false
               }
             });
           }
@@ -277,10 +261,21 @@ export const customerAuth = {
 
         if (!customer) {
           console.log('No existing customer found, creating new customer');
-          // Extract name and other data from token or request body
-          const nameParts = (decodedToken.name || '').split(' ');
-          const firstNameToUse = firstName || nameParts[0] || decodedToken.email?.split('@')[0] || '';
-          const lastNameToUse = lastName || nameParts.slice(1).join(' ') || '';
+          
+          if (!decodedToken.email) {
+            throw new ApiError('Email is required for registration', 400);
+          }
+
+          // Extract name from token or request body
+          const firstNameToUse = firstName || 
+            decodedToken.given_name || 
+            decodedToken.name?.split(' ')[0] || 
+            decodedToken.email.split('@')[0] || '';
+            
+          const lastNameToUse = lastName || 
+            decodedToken.family_name || 
+            decodedToken.name?.split(' ').slice(1).join(' ') || '';
+            
           const phoneToUse = phone || decodedToken.phone_number || null;
 
           console.log('Creating customer with data:', {
@@ -295,9 +290,9 @@ export const customerAuth = {
           customer = await prisma.customer.create({
             data: {
               email: decodedToken.email,
-              firstName: decodedToken.given_name || decodedToken.name?.split(' ')[0] || '',
-              lastName: decodedToken.family_name || decodedToken.name?.split(' ').slice(1).join(' ') || '',
-              phone: decodedToken.phone_number || null,
+              firstName: firstNameToUse,
+              lastName: lastNameToUse,
+              phone: phoneToUse,
               firebaseUid: decodedToken.uid,
               provider: provider as AuthProvider,
               isEmailVerified: decodedToken.email_verified || false,
@@ -312,52 +307,6 @@ export const customerAuth = {
             include: {
               reward: true
             }
-          });
-
-          // Send welcome email for new social auth users
-          try {
-            const { UserEmailService } = await import('../services/user-email.service');
-            await UserEmailService.sendWelcomeEmail(customer);
-            console.log('Welcome email sent to new social auth customer');
-          } catch (error) {
-            console.error('Error sending welcome email:', error);
-          }
-
-          console.log('Created new customer:', { 
-            id: customer.id, 
-            email: customer.email,
-            provider,
-            reward: customer.reward 
-          });
-        } else {
-          console.log('Updating existing customer:', customer.id);
-          // Update existing customer with any new information
-          customer = await prisma.customer.update({
-            where: { id: customer.id },
-            data: {
-              firebaseUid: decodedToken.uid,
-              provider: provider as AuthProvider,
-              isEmailVerified: decodedToken.email_verified || customer.isEmailVerified,
-              // Only update name if it's provided in the token
-              ...(decodedToken.name && {
-                firstName: decodedToken.name.split(' ')[0],
-                lastName: decodedToken.name.split(' ').slice(1).join(' ')
-              }),
-              // Only update phone if it's provided in the token
-              ...(decodedToken.phone_number && {
-                phone: decodedToken.phone_number
-              })
-            },
-            include: {
-              reward: true
-            }
-          });
-
-          console.log('Updated existing customer:', { 
-            id: customer.id, 
-            email: customer.email,
-            provider,
-            reward: customer.reward 
           });
         }
 
