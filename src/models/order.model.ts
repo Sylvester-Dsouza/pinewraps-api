@@ -88,15 +88,15 @@ const BaseOrderSchema = z.object({
     variant: z.string(),
     price: z.number(),
     quantity: z.number(),
-    cakeWriting: z.string().nullable()
+    cakeWriting: z.string().nullable().optional()
   })),
   subtotal: z.number(),
   isGift: z.boolean().default(false),
-  giftMessage: z.string().nullable(),
-  giftRecipientName: z.string().nullable(),
-  giftRecipientPhone: z.string().nullable(),
-  notes: z.string().nullable(),
-  couponCode: z.string().nullable(),
+  giftMessage: z.string().nullable().optional(),
+  giftRecipientName: z.string().nullable().optional(),
+  giftRecipientPhone: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  couponCode: z.string().nullable().optional(),
   pointsRedeemed: z.number().default(0)
 });
 
@@ -105,7 +105,7 @@ const DeliveryOrderSchema = BaseOrderSchema.extend({
   deliveryMethod: z.literal('DELIVERY'),
   deliveryDate: z.string(),
   deliveryTimeSlot: z.string(),
-  deliveryInstructions: z.string().nullable(),
+  deliveryInstructions: z.string().nullable().optional(),
   streetAddress: z.string(),
   apartment: z.string(),
   emirate: z.string(),
