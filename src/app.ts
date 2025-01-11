@@ -72,10 +72,10 @@ app.use('/api/coupons', couponRoutes);
 app.use('/api/rewards', rewardRoutes);
 app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
-if (process.env.NODE_ENV === 'development') {
-  app.use('/api/test', testRoutes);
-}
 app.use('/api/payments', paymentRoutes);
+
+// Test routes
+app.use('/api/test', testRoutes);
 
 // Health check route (no /api prefix for easier access)
 app.get('/health', (req, res) => {

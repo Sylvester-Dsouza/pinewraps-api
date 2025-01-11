@@ -1,14 +1,22 @@
 import nodemailer from 'nodemailer';
 
+console.log('Creating SMTP transport with config:', {
+  host: 'smtp-relay.brevo.com',
+  port: 587,
+  user: '81bf74003@smtp-brevo.com'
+});
+
 // Create reusable transporter object using SMTP transport
 const transporter = nodemailer.createTransport({
   host: 'smtp-relay.brevo.com',
   port: 587,
   secure: false, // true for 465, false for other ports
   auth: {
-    user: process.env.BREVO_SMTP_USER || '81bf74003@smtp-brevo.com', // fallback for development
-    pass: process.env.BREVO_SMTP_KEY || 'RMXLv6rAwW5OcJjh', // fallback for development
+    user: '81bf74003@smtp-brevo.com',
+    pass: 'RMXLv6rAwW5OcJjh'
   },
+  debug: true, // show debug output
+  logger: true // log information in console
 });
 
 export class EmailService {
@@ -48,6 +56,25 @@ export class EmailService {
     `;
   }
 
+  static async verifyConnection() {
+    try {
+      console.log('Verifying SMTP connection...');
+      const result = await transporter.verify();
+      console.log('SMTP connection verified:', result);
+      return true;
+    } catch (error) {
+      console.error('SMTP connection verification failed:', {
+        error: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode,
+        stack: error.stack
+      });
+      return false;
+    }
+  }
+
   static async sendEmail({
     to,
     subject,
@@ -73,6 +100,16 @@ export class EmailService {
         customerName: to.name,
       });
 
+      console.log('Sending email with config:', {
+        from: {
+          name: process.env.EMAIL_FROM_NAME || 'Pinewraps',
+          address: process.env.EMAIL_FROM_ADDRESS || 'support@pinewraps.com',
+        },
+        to: `${to.name} <${to.email}>`,
+        subject,
+        template
+      });
+
       // Send email
       const info = await transporter.sendMail({
         from: {
@@ -89,29 +126,24 @@ export class EmailService {
         messageId: info.messageId,
         to: to.email,
         subject,
-        template
+        template,
+        response: info.response
       });
       
       return info;
     } catch (error) {
       console.error('Error sending email:', {
-        error,
+        error: error.message,
+        code: error.code,
+        command: error.command,
+        response: error.response,
+        responseCode: error.responseCode,
+        stack: error.stack,
         to: to.email,
         subject,
         template
       });
       throw error;
-    }
-  }
-
-  static async verifyConnection() {
-    try {
-      await transporter.verify();
-      console.log('SMTP connection verified successfully');
-      return true;
-    } catch (error) {
-      console.error('SMTP connection verification failed:', error);
-      return false;
     }
   }
 }
