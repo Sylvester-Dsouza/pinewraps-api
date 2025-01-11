@@ -376,13 +376,24 @@ export class OrderService {
     // Send notification about new order
     this.sendOrderUpdate(order.id, 'NEW', order.customerId);
 
-    // Send order confirmation email
-    try {
-      const { OrderEmailService } = await import('./order-email.service');
-      await OrderEmailService.sendOrderConfirmation(order.id);
-    } catch (error) {
-      console.error('Error sending order confirmation email:', error);
-      // Don't throw error here to prevent order creation from failing
+    // Send order confirmation email only for non-credit card payments
+    if (paymentMethod !== PaymentMethod.CREDIT_CARD) {
+      try {
+        const { OrderEmailService } = await import('./order-email.service');
+        await OrderEmailService.sendOrderConfirmation(order.id);
+        console.log('Order confirmation email sent:', {
+          orderId: order.id,
+          paymentMethod
+        });
+      } catch (error) {
+        console.error('Error sending order confirmation email:', error);
+        // Don't throw error here to prevent order creation from failing
+      }
+    } else {
+      console.log('Skipping order confirmation email for credit card payment:', {
+        orderId: order.id,
+        paymentMethod
+      });
     }
 
     // Only deduct redeemed points if any were used

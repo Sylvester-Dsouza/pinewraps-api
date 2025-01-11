@@ -2,7 +2,12 @@
 export const CURRENCY = 'AED';
 
 export const formatCurrency = (amount: number): string => {
-  return `${CURRENCY} ${amount.toFixed(2)}`;
+  return new Intl.NumberFormat('en-AE', {
+    style: 'currency',
+    currency: 'AED',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
 };
 
 export const parseCurrency = (value: string | number): number => {

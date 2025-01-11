@@ -10,8 +10,9 @@ import adminAuthRoutes from './routes/admin-auth.routes';
 import adminRoutes from './routes/admin.routes';
 import couponRoutes from './routes/coupon.routes';
 import rewardRoutes from './routes/reward.routes';
-import customerRoutes from './routes/customer.routes';
 import customerAuthRoutes from './routes/customer-auth.routes';
+import customerRoutes from './routes/customer.routes';
+import testRoutes from './routes/test.routes';
 import paymentRoutes from './routes/payment.routes';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -71,6 +72,9 @@ app.use('/api/coupons', couponRoutes);
 app.use('/api/rewards', rewardRoutes);
 app.use('/api/customers/auth', customerAuthRoutes);
 app.use('/api/customers', customerRoutes);
+if (process.env.NODE_ENV === 'development') {
+  app.use('/api/test', testRoutes);
+}
 app.use('/api/payments', paymentRoutes);
 
 // Health check route (no /api prefix for easier access)

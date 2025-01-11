@@ -4,6 +4,7 @@ import { paymentConfig } from '../config/payment.config';
 import { PaymentStatus, PaymentMethod, OrderStatus, RewardHistoryType } from '@prisma/client';
 import { Order } from '@prisma/client';
 import { calculateRewardPoints } from '../utils/rewards';
+import { OrderEmailService } from './order-email.service';
 
 export class PaymentService {
   private apiUrl: string;
@@ -175,85 +176,100 @@ export class PaymentService {
         pointsEarned: updatedOrder.pointsEarned
       });
 
-      // Get customer reward record
-      const customerReward = await prisma.customerReward.findUnique({
-        where: { customerId: updatedOrder.customer.id }
-      });
-
-      if (customerReward) {
-        if (status === PaymentStatus.CAPTURED) {
-          // Payment successful - add the points that were calculated during order creation
-          console.log('Adding points to customer:', {
-            customerId: updatedOrder.customer.id,
-            pointsToAdd: updatedOrder.pointsEarned,
-            currentPoints: customerReward.points
+      if (status === PaymentStatus.CAPTURED) {
+        // Send order confirmation email for credit card payments
+        try {
+          await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
+          console.log('Order confirmation email sent after successful payment:', {
+            orderId: updatedOrder.id,
+            email: updatedOrder.customer.email,
+            paymentMethod: PaymentMethod.CREDIT_CARD
           });
+        } catch (emailError) {
+          console.error('Failed to send order confirmation email:', {
+            error: emailError,
+            orderId: updatedOrder.id
+          });
+          // Don't throw the error as the payment was still successful
+        }
 
-          await prisma.$transaction([
-            prisma.customerReward.update({
-              where: { id: customerReward.id },
-              data: {
-                points: { increment: updatedOrder.pointsEarned },
-                totalPoints: { increment: updatedOrder.pointsEarned }
-              }
-            }),
-            prisma.customer.update({
-              where: { id: updatedOrder.customer.id },
-              data: {
-                rewardPoints: { increment: updatedOrder.pointsEarned }
-              }
-            }),
-            prisma.rewardHistory.create({
-              data: {
-                customer: { connect: { id: updatedOrder.customer.id } },
-                pointsEarned: updatedOrder.pointsEarned,
-                pointsRedeemed: updatedOrder.pointsRedeemed || 0,
-                orderTotal: updatedOrder.total,
-                action: RewardHistoryType.EARNED,
-                description: `Earned ${updatedOrder.pointsEarned} points from order ${updatedOrder.orderNumber}`,
-                order: { connect: { id: updatedOrder.id } },
-                reward: { connect: { id: customerReward.id } }
-              }
-            })
-          ]);
-        } else {
-          // Payment failed - create a record in reward history to track the failed points
-          try {
-            await prisma.rewardHistory.create({
-              data: {
-                customer: { connect: { id: updatedOrder.customer.id } },
-                pointsEarned: 0,
-                pointsRedeemed: 0,
-                orderTotal: updatedOrder.total,
-                action: RewardHistoryType.FAILED,
-                description: `Points not awarded due to failed payment for order ${updatedOrder.orderNumber}`,
-                order: { connect: { id: updatedOrder.id } },
-                reward: { connect: { id: customerReward.id } }
-              }
+        // Get customer reward record
+        const customerReward = await prisma.customerReward.findUnique({
+          where: { customerId: updatedOrder.customer.id }
+        });
+
+        if (customerReward) {
+          if (status === PaymentStatus.CAPTURED) {
+            // Payment successful - add the points that were calculated during order creation
+            console.log('Adding points to customer:', {
+              customerId: updatedOrder.customer.id,
+              pointsToAdd: updatedOrder.pointsEarned,
+              currentPoints: customerReward.points
             });
-          } catch (error) {
-            // Log the error but don't throw it to prevent breaking the payment flow
-            console.error('Error creating reward history for failed payment:', error);
+
+            await prisma.$transaction([
+              prisma.customerReward.update({
+                where: { id: customerReward.id },
+                data: {
+                  points: { increment: updatedOrder.pointsEarned },
+                  totalPoints: { increment: updatedOrder.pointsEarned }
+                }
+              }),
+              prisma.customer.update({
+                where: { id: updatedOrder.customer.id },
+                data: {
+                  rewardPoints: { increment: updatedOrder.pointsEarned }
+                }
+              }),
+              prisma.rewardHistory.create({
+                data: {
+                  customer: { connect: { id: updatedOrder.customer.id } },
+                  pointsEarned: updatedOrder.pointsEarned,
+                  pointsRedeemed: updatedOrder.pointsRedeemed || 0,
+                  orderTotal: updatedOrder.total,
+                  action: RewardHistoryType.EARNED,
+                  description: `Earned ${updatedOrder.pointsEarned} points from order ${updatedOrder.orderNumber}`,
+                  order: { connect: { id: updatedOrder.id } },
+                  reward: { connect: { id: customerReward.id } }
+                }
+              })
+            ]);
+          } else {
+            // Payment failed - create a record in reward history to track the failed points
+            try {
+              await prisma.rewardHistory.create({
+                data: {
+                  customer: { connect: { id: updatedOrder.customer.id } },
+                  pointsEarned: 0,
+                  pointsRedeemed: 0,
+                  orderTotal: updatedOrder.total,
+                  action: RewardHistoryType.FAILED,
+                  description: `Points not awarded due to failed payment for order ${updatedOrder.orderNumber}`,
+                  order: { connect: { id: updatedOrder.id } },
+                  reward: { connect: { id: customerReward.id } }
+                }
+              });
+            } catch (error) {
+              // Log the error but don't throw it to prevent breaking the payment flow
+              console.error('Error creating reward history for failed payment:', error);
+            }
           }
         }
-      }
 
-      // Send confirmation email
-      try {
-        const { OrderEmailService } = require('./order-email.service');
-        await OrderEmailService.sendOrderConfirmation(updatedOrder.id);
-        console.log('Order confirmation email sent successfully');
-      } catch (emailError) {
-        console.error('Failed to send order confirmation email:', emailError);
-        // Don't throw the error, just log it
+        return {
+          status,
+          orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
+          errorMessage
+        };
+      } else {
+        return {
+          status,
+          orderId: updatedOrder.id,
+          orderNumber: updatedOrder.orderNumber,
+          errorMessage
+        };
       }
-
-      return {
-        status,
-        orderId: updatedOrder.id,
-        orderNumber: updatedOrder.orderNumber,
-        errorMessage
-      };
     } catch (error) {
       console.error('Error in handleCallback:', error);
       // Add more detailed error logging
