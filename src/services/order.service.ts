@@ -3,6 +3,7 @@ import { OrderStatus, Emirates, RewardTier, RewardHistoryType } from '../models/
 import { PaymentStatus, PaymentMethod } from '@prisma/client';
 import WebSocketService from './websocket.service';
 import { calculateRewardPoints, getCustomerTier } from '../utils/rewards';
+import { OrderEmailService } from './order-email.service';
 
 export class OrderService {
   private static wsService: WebSocketService | null = null;
@@ -379,19 +380,24 @@ export class OrderService {
     // Send order confirmation email only for non-credit card payments
     if (paymentMethod !== PaymentMethod.CREDIT_CARD) {
       try {
-        const { OrderEmailService } = await import('./order-email.service');
         await OrderEmailService.sendOrderConfirmation(order.id);
         console.log('Order confirmation email sent:', {
           orderId: order.id,
+          email: order.customer.email,
           paymentMethod
         });
       } catch (error) {
-        console.error('Error sending order confirmation email:', error);
+        console.error('Error sending order confirmation email:', {
+          error,
+          orderId: order.id,
+          email: order.customer.email
+        });
         // Don't throw error here to prevent order creation from failing
       }
     } else {
       console.log('Skipping order confirmation email for credit card payment:', {
         orderId: order.id,
+        email: order.customer.email,
         paymentMethod
       });
     }
@@ -486,7 +492,6 @@ export class OrderService {
 
       // Send order status update email
       try {
-        const { OrderEmailService } = await import('./order-email.service');
         await OrderEmailService.sendOrderStatusUpdate(orderId, status);
         console.log('Order status update email sent');
       } catch (error) {

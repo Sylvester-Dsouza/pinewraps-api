@@ -188,7 +188,8 @@ export class PaymentService {
         } catch (emailError) {
           console.error('Failed to send order confirmation email:', {
             error: emailError,
-            orderId: updatedOrder.id
+            orderId: updatedOrder.id,
+            email: updatedOrder.customer.email
           });
           // Don't throw the error as the payment was still successful
         }
