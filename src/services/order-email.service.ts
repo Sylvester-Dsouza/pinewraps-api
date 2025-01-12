@@ -73,12 +73,7 @@ export class OrderEmailService {
         where: { id: orderId },
         include: {
           customer: true,
-          items: {
-            include: {
-              product: true
-            }
-          },
-          shippingAddress: true
+          items: true
         }
       });
 
@@ -96,7 +91,7 @@ export class OrderEmailService {
 
       // Format order items for email
       const items = order.items.map(item => ({
-        name: item.product.name,
+        name: item.name,
         quantity: item.quantity,
         price: item.price,
         variant: item.variant,
@@ -126,12 +121,22 @@ export class OrderEmailService {
           customerName: `${order.customer.firstName} ${order.customer.lastName}`,
           orderNumber: order.orderNumber,
           items,
-          subTotal: order.subTotal,
-          tax: order.tax,
-          shippingCost: order.shippingCost,
+          subTotal: order.subtotal,
+          tax: 0,
+          shippingCost: order.deliveryCharge || 0,
           total: order.total,
           orderLink,
-          shippingAddress: order.shippingAddress
+          deliveryMethod: order.deliveryMethod,
+          deliveryDate: order.deliveryDate,
+          deliveryTimeSlot: order.deliveryTimeSlot,
+          pickupDate: order.pickupDate,
+          pickupTimeSlot: order.pickupTimeSlot,
+          storeLocation: order.storeLocation,
+          streetAddress: order.streetAddress,
+          apartment: order.apartment,
+          emirate: order.emirate,
+          city: order.city,
+          pincode: order.pincode
         }
       });
 
