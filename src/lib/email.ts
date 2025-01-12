@@ -1,30 +1,60 @@
 import nodemailer from 'nodemailer';
 import { formatCurrency } from '../utils/currency';
 
-console.log('Creating SMTP transport with config:', {
-  host: 'smtp-relay.brevo.com',
-  port: 587,
-  user: process.env.BREVO_SMTP_USER || '81bf74003@smtp-brevo.com'
-});
-
-// Create reusable transporter object using SMTP transport
-const transporter = nodemailer.createTransport({
-  host: 'smtp-relay.brevo.com',
-  port: 587,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.BREVO_SMTP_USER || '81bf74003@smtp-brevo.com',
-    pass: process.env.BREVO_SMTP_KEY || 'RMXLv6rAwW5OcJjh'
-  },
-  debug: true, // show debug output
-  logger: true // log information in console
-});
-
 export class EmailService {
+  private static getTransporter() {
+    // Verify required environment variables
+    if (!process.env.BREVO_SMTP_USER || !process.env.BREVO_SMTP_KEY) {
+      console.error('Missing SMTP credentials:', {
+        hasUser: !!process.env.BREVO_SMTP_USER,
+        hasKey: !!process.env.BREVO_SMTP_KEY
+      });
+      throw new Error('SMTP credentials not configured');
+    }
+
+    return nodemailer.createTransport({
+      host: 'smtp-relay.brevo.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.BREVO_SMTP_USER,
+        pass: process.env.BREVO_SMTP_KEY
+      },
+      debug: process.env.NODE_ENV !== 'production',
+      logger: process.env.NODE_ENV !== 'production'
+    });
+  }
+
   private static getEmailTemplate(template: string, context: Record<string, any>): string {
+    console.log('Generating email template:', {
+      template,
+      contextKeys: Object.keys(context)
+    });
+
     // Order confirmation specific template
     if (template === 'order-confirmation') {
       const { orderNumber, items, total, subTotal, tax, shippingCost, customerName, orderLink } = context;
+      
+      // Validate required fields
+      if (!orderNumber || !items || !total || !customerName) {
+        console.error('Missing required template variables:', {
+          hasOrderNumber: !!orderNumber,
+          hasItems: !!items,
+          hasTotal: !!total,
+          hasCustomerName: !!customerName
+        });
+        throw new Error('Missing required template variables');
+      }
+
+      const itemsHtml = items.map((item: any) => `
+        <div class="order-item">
+          <div><strong>${item.name}</strong> x ${item.quantity}</div>
+          <div>${item.variant ? `Variant: ${item.variant}` : ''}</div>
+          <div>${item.cakeWriting ? `Cake Writing: ${item.cakeWriting}` : ''}</div>
+          <div class="text-right">${formatCurrency(item.price * item.quantity)}</div>
+        </div>
+      `).join('');
+
       return `
         <!DOCTYPE html>
         <html>
@@ -53,38 +83,32 @@ export class EmailService {
             
             <div class="content">
               <p>Dear ${customerName},</p>
-              <p>Thank you for your order! We're excited to confirm that your order has been received and is being processed.</p>
-
+              <p>Thank you for your order! We're excited to prepare your delicious treats.</p>
+              
               <div class="order-details">
                 <h2>Order Details</h2>
                 <div class="order-items">
-                  ${items.map((item: any) => `
-                    <div class="order-item">
-                      <p><strong>${item.name}</strong> ${item.variant ? `(${item.variant})` : ''}</p>
-                      <p>Quantity: ${item.quantity} × ${formatCurrency(item.price)}</p>
-                      ${item.cakeWriting ? `<p>Cake Writing: "${item.cakeWriting}"</p>` : ''}
-                    </div>
-                  `).join('')}
+                  ${itemsHtml}
                 </div>
-
+                
                 <div class="order-total">
                   <p><strong>Subtotal:</strong> <span class="text-right">${formatCurrency(subTotal)}</span></p>
-                  <p><strong>Shipping:</strong> <span class="text-right">${formatCurrency(shippingCost)}</span></p>
-                  <p><strong>Tax:</strong> <span class="text-right">${formatCurrency(tax)}</span></p>
+                  ${tax ? `<p><strong>Tax:</strong> <span class="text-right">${formatCurrency(tax)}</span></p>` : ''}
+                  ${shippingCost ? `<p><strong>Shipping:</strong> <span class="text-right">${formatCurrency(shippingCost)}</span></p>` : ''}
                   <p><strong>Total:</strong> <span class="text-right">${formatCurrency(total)}</span></p>
                 </div>
               </div>
-
-              <div style="text-align: center;">
-                <a href="${orderLink}" class="btn">View Order Details</a>
-              </div>
-
-              <p>If you have any questions about your order, please don't hesitate to contact us.</p>
+              
+              ${orderLink ? `
+                <div style="text-align: center;">
+                  <a href="${orderLink}" class="btn">View Order Details</a>
+                </div>
+              ` : ''}
             </div>
-
+            
             <div class="footer">
-              <p> ${new Date().getFullYear()} Pinewraps. All rights reserved.</p>
-              <p>This email was sent to ${context.email}</p>
+              <p>If you have any questions about your order, please contact us.</p>
+              <p>Best regards,<br>The Pinewraps Team</p>
             </div>
           </div>
         </body>
@@ -92,127 +116,86 @@ export class EmailService {
       `;
     }
 
-    // Default template for other emails
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { text-align: center; margin-bottom: 30px; }
-          .content { margin-bottom: 30px; }
-          .footer { text-align: center; font-size: 12px; color: #666; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>${context.title || 'Pinewraps'}</h1>
-          </div>
-          
-          <div class="content">
-            <p>Dear ${context.customerName},</p>
-            ${context.content || ''}
-          </div>
-
-          <div class="footer">
-            <p> ${new Date().getFullYear()} Pinewraps. All rights reserved.</p>
-            <p>This email was sent to ${context.email}</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
+    throw new Error(`Email template '${template}' not found`);
   }
 
-  static async verifyConnection() {
-    try {
-      console.log('Verifying SMTP connection...');
-      const result = await transporter.verify();
-      console.log('SMTP connection verified:', result);
-      return true;
-    } catch (error) {
-      console.error('SMTP connection verification failed:', {
-        error: error.message,
-        code: error.code,
-        command: error.command,
-        response: error.response,
-        responseCode: error.responseCode,
-        stack: error.stack
-      });
-      return false;
-    }
-  }
-
-  static async sendEmail({
-    to,
-    subject,
-    template,
-    context,
-    attachments = [],
-  }: {
-    to: { email: string; name: string };
-    subject: string;
-    template: string;
-    context: Record<string, any>;
-    attachments?: Array<{
-      filename: string;
-      content: string | Buffer;
-      contentType?: string;
-    }>;
+  static async sendEmail({ 
+    to, 
+    subject, 
+    template, 
+    context = {}, 
+    attachments = [] 
+  }: { 
+    to: { 
+      email: string; 
+      name: string; 
+    }; 
+    subject: string; 
+    template: string; 
+    context?: Record<string, any>; 
+    attachments?: Array<{ 
+      filename: string; 
+      content: string; 
+      encoding?: string; 
+    }>; 
   }) {
     try {
+      console.log('Starting email send process:', {
+        to: to.email,
+        subject,
+        template,
+        hasContext: !!context
+      });
+
+      // Get transporter
+      const transporter = this.getTransporter();
+
       // Generate HTML from template
       const html = this.getEmailTemplate(template, {
         ...context,
-        email: to.email,
         customerName: to.name,
       });
 
-      console.log('Sending email with config:', {
+      // Prepare email options
+      const mailOptions = {
         from: {
           name: process.env.EMAIL_FROM_NAME || 'Pinewraps',
-          address: process.env.EMAIL_FROM_ADDRESS || 'support@pinewraps.com',
-        },
-        to: `${to.name} <${to.email}>`,
-        subject,
-        template
-      });
-
-      // Send email
-      const info = await transporter.sendMail({
-        from: {
-          name: process.env.EMAIL_FROM_NAME || 'Pinewraps',
-          address: process.env.EMAIL_FROM_ADDRESS || 'support@pinewraps.com',
+          address: process.env.EMAIL_FROM_ADDRESS || 'no-reply@pinewraps.com'
         },
         to: `${to.name} <${to.email}>`,
         subject,
         html,
-        attachments,
+        attachments
+      };
+
+      console.log('Sending email with options:', {
+        from: mailOptions.from,
+        to: mailOptions.to,
+        subject: mailOptions.subject,
+        hasHtml: !!mailOptions.html,
+        attachmentsCount: mailOptions.attachments?.length
       });
+
+      // Send email
+      const info = await transporter.sendMail(mailOptions);
 
       console.log('Email sent successfully:', {
         messageId: info.messageId,
+        response: info.response,
         to: to.email,
-        subject,
-        template,
-        response: info.response
+        subject
       });
       
       return info;
-    } catch (error) {
-      console.error('Error sending email:', {
+    } catch (error: any) {
+      console.error('Failed to send email:', {
         error: error.message,
+        stack: error.stack,
         code: error.code,
         command: error.command,
         response: error.response,
-        responseCode: error.responseCode,
-        stack: error.stack,
         to: to.email,
-        subject,
-        template
+        subject
       });
       throw error;
     }

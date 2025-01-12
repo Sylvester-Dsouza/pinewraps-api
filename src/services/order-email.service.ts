@@ -65,7 +65,10 @@ export class OrderEmailService {
 
   static async sendOrderConfirmation(orderId: string) {
     try {
+      console.log('Starting order confirmation email process:', { orderId });
+
       // Fetch order with all necessary details
+      console.log('Fetching order details...');
       const order = await prisma.order.findUnique({
         where: { id: orderId },
         include: {
@@ -80,8 +83,16 @@ export class OrderEmailService {
       });
 
       if (!order) {
+        console.error('Order not found for email:', { orderId });
         throw new Error('Order not found');
       }
+
+      console.log('Order found:', {
+        orderId,
+        orderNumber: order.orderNumber,
+        customerEmail: order.customer.email,
+        itemCount: order.items.length
+      });
 
       // Format order items for email
       const items = order.items.map(item => ({
@@ -94,6 +105,14 @@ export class OrderEmailService {
 
       // Generate order link
       const orderLink = `${process.env.NEXT_PUBLIC_WEBSITE_URL}/account/orders/${order.id}`;
+
+      console.log('Preparing to send email with data:', {
+        orderId,
+        orderNumber: order.orderNumber,
+        email: order.customer.email,
+        itemCount: items.length,
+        hasOrderLink: !!orderLink
+      });
 
       // Send confirmation email
       await EmailService.sendEmail({
@@ -116,71 +135,130 @@ export class OrderEmailService {
         }
       });
 
-      console.log('Order confirmation email sent:', {
+      console.log('Order confirmation email sent successfully:', {
         orderId,
-        email: order.customer.email,
-        orderNumber: order.orderNumber
+        orderNumber: order.orderNumber,
+        email: order.customer.email
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to send order confirmation email:', {
-        error,
-        orderId
+        error: error.message,
+        stack: error.stack,
+        orderId,
+        code: error.code,
+        response: error.response
       });
       throw error;
     }
   }
 
   static async sendOrderStatusUpdate(orderId: string, status: OrderStatus) {
-    const order = await this.getOrderDetails(orderId);
-    const template = this.STATUS_TEMPLATES[status];
+    try {
+      console.log('Starting order status update email process:', { orderId, status });
 
-    if (!template) {
-      throw new Error(`No email template found for status: ${status}`);
-    }
+      const order = await this.getOrderDetails(orderId);
+      const template = this.STATUS_TEMPLATES[status];
 
-    return EmailService.sendEmail({
-      to: {
-        email: order.customer.email,
-        name: `${order.customer.firstName} ${order.customer.lastName}`
-      },
-      subject: `${template.subject} - #${order.orderNumber}`,
-      template: template.template,
-      context: {
-        customerName: `${order.customer.firstName} ${order.customer.lastName}`,
-        orderNumber: order.orderNumber,
-        orderDate: order.createdAt.toLocaleDateString(),
-        items: order.items.map(item => ({
-          ...item,
-          totalPrice: formatCurrency(item.price * item.quantity)
-        })),
-        total: formatCurrency(order.total),
-        message: template.message,
-        deliveryDate: order.deliveryDate?.toLocaleDateString(),
-        deliveryTime: order.deliveryTime,
-        trackingNumber: order.trackingNumber,
-        trackingUrl: order.trackingUrl
+      if (!template) {
+        throw new Error(`No email template found for status: ${status}`);
       }
-    });
+
+      console.log('Sending status update email:', {
+        orderId,
+        orderNumber: order.orderNumber,
+        status,
+        email: order.customer.email
+      });
+
+      await EmailService.sendEmail({
+        to: {
+          email: order.customer.email,
+          name: `${order.customer.firstName} ${order.customer.lastName}`
+        },
+        subject: `${template.subject} - #${order.orderNumber}`,
+        template: template.template,
+        context: {
+          customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+          orderNumber: order.orderNumber,
+          orderDate: order.createdAt.toLocaleDateString(),
+          items: order.items.map(item => ({
+            ...item,
+            totalPrice: formatCurrency(item.price * item.quantity)
+          })),
+          total: formatCurrency(order.total),
+          message: template.message,
+          deliveryDate: order.deliveryDate?.toLocaleDateString(),
+          deliveryTime: order.deliveryTime,
+          trackingNumber: order.trackingNumber,
+          trackingUrl: order.trackingUrl
+        }
+      });
+
+      console.log('Order status update email sent successfully:', {
+        orderId,
+        orderNumber: order.orderNumber,
+        status,
+        email: order.customer.email
+      });
+    } catch (error: any) {
+      console.error('Failed to send order status update email:', {
+        error: error.message,
+        stack: error.stack,
+        orderId,
+        status,
+        code: error.code,
+        response: error.response
+      });
+      throw error;
+    }
   }
 
   static async sendOrderEmail(orderId: string, subject: string, customMessage: string) {
-    const order = await this.getOrderDetails(orderId);
+    try {
+      console.log('Starting custom order email process:', { orderId, subject });
 
-    return EmailService.sendEmail({
-      to: {
-        email: order.customer.email,
-        name: `${order.customer.firstName} ${order.customer.lastName}`
-      },
-      subject: `${subject} - #${order.orderNumber}`,
-      template: 'order-custom',
-      context: {
-        customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+      const order = await this.getOrderDetails(orderId);
+
+      console.log('Sending custom email:', {
+        orderId,
         orderNumber: order.orderNumber,
-        message: customMessage,
-        orderStatus: order.status,
-        deliveryDate: order.deliveryDate?.toLocaleDateString(),
-        deliveryTime: order.deliveryTime
-      }
-    });
+        subject,
+        email: order.customer.email
+      });
+
+      await EmailService.sendEmail({
+        to: {
+          email: order.customer.email,
+          name: `${order.customer.firstName} ${order.customer.lastName}`
+        },
+        subject: `${subject} - #${order.orderNumber}`,
+        template: 'order-custom',
+        context: {
+          customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+          orderNumber: order.orderNumber,
+          message: customMessage,
+          orderStatus: order.status,
+          deliveryDate: order.deliveryDate?.toLocaleDateString(),
+          deliveryTime: order.deliveryTime
+        }
+      });
+
+      console.log('Custom order email sent successfully:', {
+        orderId,
+        orderNumber: order.orderNumber,
+        subject,
+        email: order.customer.email
+      });
+    } catch (error: any) {
+      console.error('Failed to send custom order email:', {
+        error: error.message,
+        stack: error.stack,
+        orderId,
+        subject,
+        code: error.code,
+        response: error.response
+      });
+      throw error;
+    }
   }
 }
