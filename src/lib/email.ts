@@ -1,9 +1,10 @@
 import nodemailer from 'nodemailer';
+import { formatCurrency } from '../utils/currency';
 
 console.log('Creating SMTP transport with config:', {
   host: 'smtp-relay.brevo.com',
   port: 587,
-  user: '81bf74003@smtp-brevo.com'
+  user: process.env.BREVO_SMTP_USER || '81bf74003@smtp-brevo.com'
 });
 
 // Create reusable transporter object using SMTP transport
@@ -12,8 +13,8 @@ const transporter = nodemailer.createTransport({
   port: 587,
   secure: false, // true for 465, false for other ports
   auth: {
-    user: '81bf74003@smtp-brevo.com',
-    pass: 'RMXLv6rAwW5OcJjh'
+    user: process.env.BREVO_SMTP_USER || '81bf74003@smtp-brevo.com',
+    pass: process.env.BREVO_SMTP_KEY || 'RMXLv6rAwW5OcJjh'
   },
   debug: true, // show debug output
   logger: true // log information in console
@@ -21,7 +22,77 @@ const transporter = nodemailer.createTransport({
 
 export class EmailService {
   private static getEmailTemplate(template: string, context: Record<string, any>): string {
-    // Basic HTML template
+    // Order confirmation specific template
+    if (template === 'order-confirmation') {
+      const { orderNumber, items, total, subTotal, tax, shippingCost, customerName, orderLink } = context;
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .content { margin-bottom: 30px; }
+            .footer { text-align: center; font-size: 12px; color: #666; }
+            .order-details { background: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .order-items { margin: 20px 0; }
+            .order-item { padding: 10px 0; border-bottom: 1px solid #eee; }
+            .order-total { margin-top: 20px; border-top: 2px solid #eee; padding-top: 20px; }
+            .btn { display: inline-block; padding: 12px 24px; background: #000; color: #fff; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+            .text-right { text-align: right; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="header">
+              <h1>Order Confirmation</h1>
+              <p>Order #${orderNumber}</p>
+            </div>
+            
+            <div class="content">
+              <p>Dear ${customerName},</p>
+              <p>Thank you for your order! We're excited to confirm that your order has been received and is being processed.</p>
+
+              <div class="order-details">
+                <h2>Order Details</h2>
+                <div class="order-items">
+                  ${items.map((item: any) => `
+                    <div class="order-item">
+                      <p><strong>${item.name}</strong> ${item.variant ? `(${item.variant})` : ''}</p>
+                      <p>Quantity: ${item.quantity} × ${formatCurrency(item.price)}</p>
+                      ${item.cakeWriting ? `<p>Cake Writing: "${item.cakeWriting}"</p>` : ''}
+                    </div>
+                  `).join('')}
+                </div>
+
+                <div class="order-total">
+                  <p><strong>Subtotal:</strong> <span class="text-right">${formatCurrency(subTotal)}</span></p>
+                  <p><strong>Shipping:</strong> <span class="text-right">${formatCurrency(shippingCost)}</span></p>
+                  <p><strong>Tax:</strong> <span class="text-right">${formatCurrency(tax)}</span></p>
+                  <p><strong>Total:</strong> <span class="text-right">${formatCurrency(total)}</span></p>
+                </div>
+              </div>
+
+              <div style="text-align: center;">
+                <a href="${orderLink}" class="btn">View Order Details</a>
+              </div>
+
+              <p>If you have any questions about your order, please don't hesitate to contact us.</p>
+            </div>
+
+            <div class="footer">
+              <p> ${new Date().getFullYear()} Pinewraps. All rights reserved.</p>
+              <p>This email was sent to ${context.email}</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    }
+
+    // Default template for other emails
     return `
       <!DOCTYPE html>
       <html>

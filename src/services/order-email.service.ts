@@ -64,40 +64,70 @@ export class OrderEmailService {
   }
 
   static async sendOrderConfirmation(orderId: string) {
-    const order = await this.getOrderDetails(orderId);
-    
-    return EmailService.sendEmail({
-      to: {
-        email: order.customer.email,
-        name: `${order.customer.firstName} ${order.customer.lastName}`
-      },
-      subject: `Order Confirmation - #${order.orderNumber}`,
-      template: 'order-confirmation',
-      context: {
-        customerName: `${order.customer.firstName} ${order.customer.lastName}`,
-        orderNumber: order.orderNumber,
-        orderDate: order.createdAt.toLocaleDateString(),
-        items: order.items.map(item => ({
-          ...item,
-          totalPrice: formatCurrency(item.price * item.quantity)
-        })),
-        subtotal: formatCurrency(order.subtotal),
-        tax: formatCurrency(order.tax),
-        total: formatCurrency(order.total),
-        shippingAddress: order.shippingAddress,
-        deliveryDate: order.deliveryDate?.toLocaleDateString(),
-        deliveryTime: order.deliveryTime,
-        deliveryInstructions: order.deliveryInstructions,
-        orderStatus: order.status,
-        paymentStatus: order.paymentStatus,
-        isGift: order.isGift,
-        giftMessage: order.giftMessage,
-        giftRecipient: order.isGift ? {
-          name: order.giftRecipientName,
-          phone: order.giftRecipientPhone
-        } : null
+    try {
+      // Fetch order with all necessary details
+      const order = await prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          customer: true,
+          items: {
+            include: {
+              product: true
+            }
+          },
+          shippingAddress: true
+        }
+      });
+
+      if (!order) {
+        throw new Error('Order not found');
       }
-    });
+
+      // Format order items for email
+      const items = order.items.map(item => ({
+        name: item.product.name,
+        quantity: item.quantity,
+        price: item.price,
+        variant: item.variant,
+        cakeWriting: item.cakeWriting
+      }));
+
+      // Generate order link
+      const orderLink = `${process.env.NEXT_PUBLIC_WEBSITE_URL}/account/orders/${order.id}`;
+
+      // Send confirmation email
+      await EmailService.sendEmail({
+        to: {
+          email: order.customer.email,
+          name: `${order.customer.firstName} ${order.customer.lastName}`
+        },
+        subject: `Order Confirmation - #${order.orderNumber}`,
+        template: 'order-confirmation',
+        context: {
+          customerName: `${order.customer.firstName} ${order.customer.lastName}`,
+          orderNumber: order.orderNumber,
+          items,
+          subTotal: order.subTotal,
+          tax: order.tax,
+          shippingCost: order.shippingCost,
+          total: order.total,
+          orderLink,
+          shippingAddress: order.shippingAddress
+        }
+      });
+
+      console.log('Order confirmation email sent:', {
+        orderId,
+        email: order.customer.email,
+        orderNumber: order.orderNumber
+      });
+    } catch (error) {
+      console.error('Failed to send order confirmation email:', {
+        error,
+        orderId
+      });
+      throw error;
+    }
   }
 
   static async sendOrderStatusUpdate(orderId: string, status: OrderStatus) {
