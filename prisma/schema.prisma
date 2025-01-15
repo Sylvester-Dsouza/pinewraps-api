@@ -244,10 +244,14 @@ model ProductImage {
   url       String
   alt       String?
   productId String
+  order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   isPrimary Boolean  @default(false)
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@index([order])
 }
 
 model ProductVariation {
